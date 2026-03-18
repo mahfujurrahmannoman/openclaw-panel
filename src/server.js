@@ -445,9 +445,9 @@ wss.on('connection', async (ws, request) => {
         AttachStdin: true, AttachStdout: true, AttachStderr: true,
         Tty: true, Env: ['TERM=xterm-256color', 'COLUMNS=120', 'LINES=30'],
       });
-      const stream = await exec.start({ hijack: true, stdin: true, Tty: true, ConsoleSize: { Height: 30, Width: 120 } });
-      // Set initial size immediately
-      exec.resize({ h: 30, w: 120 }).catch(() => {});
+      const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
+      // Set initial PTY size immediately after start
+      await exec.resize({ h: 30, w: 120 }).catch(() => {});
       attachStream(ws, exec, stream, user.project_name);
       return;
     } catch (_) { continue; }
