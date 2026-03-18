@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw - User Panel</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css">
+  <script src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'IBM Plex Sans', sans-serif; background: #fafbfc; color: #18181b; min-height: 100vh; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    :root {
+      --bg: #fafbfc; --card: #ffffff; --border: #e4e4e7; --accent: #6366f1;
+      --accent-hover: #4f46e5; --success: #16a34a; --warning: #d97706; --danger: #dc2626;
+      --text: #18181b; --text-dim: #71717a; --text-muted: #a1a1aa;
+    }
+    input, select, textarea, button { font-family: inherit; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+
+    /* Layout */
+    .topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+    .topbar-brand { display: flex; align-items: center; gap: 10px; }
+    .topbar-brand h1 { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .topbar-brand span { font-size: 12px; color: var(--text-dim); }
+    .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+
+    /* Cards */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .card h3 { font-size: 14px; font-weight: 600; color: var(--text-dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .5px; }
+
+    /* Info rows */
+    .info-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f4f4f5; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { font-size: 13px; color: var(--text-dim); }
+    .info-value { font-size: 13px; font-weight: 500; }
+    .info-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: #dcfce7; color: var(--success); }
+    .badge-suspended { background: #fef2f2; color: var(--danger); }
+    .badge-plan { background: #eef2ff; color: var(--accent); }
+
+    /* Buttons */
+    .btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: #f4f4f5; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { color: var(--danger); border-color: rgba(220,38,38,.3); }
+
+    /* Meter */
+    .meter { height: 8px; background: #e4e4e7; border-radius: 99px; overflow: hidden; }
+    .meter-fill { height: 100%; border-radius: 99px; transition: width .5s; }
+    .meter-green { background: var(--success); }
+    .meter-amber { background: var(--warning); }
+    .meter-red { background: var(--danger); }
+    .meter-info { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+    /* Form */
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; }
+    .form-group input, .form-group select { width: 100%; padding: 8px 12px; background: #fafbfc; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
+    .form-group input:focus, .form-group select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Token display */
+    .token-display { display: flex; align-items: center; gap: 8px; background: #f4f4f5; padding: 6px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; word-break: break-all; }
+    .token-toggle { cursor: pointer; color: var(--accent); font-size: 12px; white-space: nowrap; user-select: none; }
+
+    /* Logs */
+    .logs-box { background: #18181b; color: #a1a1aa; padding: 14px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; }
+
+    /* Toast */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+    .toast { padding: 12px 16px; border-radius: 8px; font-size: 13px; animation: slideIn .3s; max-width: 360px; }
+    .toast-success { background: #dcfce7; border: 1px solid #bbf7d0; color: var(--success); }
+    .toast-error { background: #fef2f2; border: 1px solid #fecaca; color: var(--danger); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+    /* Login */
+    .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #eef2ff 0%, #fafbfc 100%); }
+    .login-box { width: 380px; }
+    .login-box h1 { font-size: 24px; text-align: center; margin-bottom: 4px; color: var(--accent); }
+    .login-box p { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+
+    /* Quick actions */
+    .quick-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* Nav tabs */
+    .nav-tabs { display: flex; gap: 0; background: var(--card); border-bottom: 1px solid var(--border); padding: 0 24px; }
+    .nav-tab { padding: 12px 20px; font-size: 13px; font-weight: 500; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+    .nav-tab:hover { color: var(--text); }
+    .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* Terminal */
+    .terminal-container { background: #1e1e2e; border-radius: 12px; overflow: hidden; border: 1px solid #313244; }
+    .terminal-header { background: #181825; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #313244; }
+    .terminal-header .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .terminal-header .title { font-size: 12px; color: #cdd6f4; font-family: 'JetBrains Mono', monospace; }
+    .terminal-body { height: 480px; padding: 4px; }
+    .terminal-status { font-size: 11px; padding: 2px 8px; border-radius: 99px; }
+    .terminal-status.connected { background: rgba(34,197,94,.15); color: var(--success); }
+    .terminal-status.disconnected { background: rgba(239,68,68,.15); color: var(--danger); }
+    .terminal-status.connecting { background: rgba(245,158,11,.15); color: var(--warning); }
+
+    /* Setup Guide */
+    .guide-step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; position: relative; }
+    .guide-step .step-num { position: absolute; top: -12px; left: 20px; background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+    .guide-step h4 { font-size: 15px; font-weight: 600; margin-bottom: 8px; padding-right: 80px; }
+    .guide-step p { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+    .guide-step .step-badge { position: absolute; top: 16px; right: 16px; font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .step-badge.critical { background: rgba(239,68,68,.1); color: var(--danger); }
+    .step-badge.first { background: rgba(99,102,241,.1); color: var(--accent); }
+    .step-badge.popular { background: rgba(34,197,94,.1); color: var(--success); }
+    .step-badge.optional { background: rgba(161,161,170,.1); color: var(--text-muted); }
+    .cmd-box { background: #1e1e2e; color: #cdd6f4; padding: 10px 14px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; margin: 8px 0; position: relative; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .cmd-box .copy-btn { position: absolute; top: 6px; right: 8px; background: #313244; border: none; color: #cdd6f4; padding: 2px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; }
+    .cmd-box .copy-btn:hover { background: #45475a; }
+    .tip-box { background: #eef2ff; border: 1px solid rgba(99,102,241,.2); border-radius: 8px; padding: 10px 14px; margin: 8px 0; font-size: 12px; color: var(--accent); }
+    .warn-box { background: #fef3c7; border: 1px solid rgba(217,119,6,.2); border-radius: 8px; padding: 10px 14px; margin: 8px 0; font-size: 12px; color: #92400e; }
+    .guide-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; }
+    .guide-table th { background: #f4f4f5; text-align: left; padding: 8px 10px; font-weight: 600; }
+    .guide-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .guide-table tr:last-child td { border-bottom: none; }
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-box { text-align: center; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    .stat-box .num { font-size: 22px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+    .stat-box .lbl { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .container { padding: 16px 12px; }
+      .form-row { grid-template-columns: 1fr; }
+      .quick-actions { flex-direction: column; }
+      .info-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .nav-tabs { padding: 0 8px; }
+      .nav-tab { padding: 10px 12px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ===== API Helper =====
+const api = {
+  token: localStorage.getItem('user_token'),
+  async request(url, opts = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(url, { ...opts, headers });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  },
+  get: (url) => api.request(url),
+  post: (url, body) => api.request(url, { method: 'POST', body: JSON.stringify(body) }),
+};
+
+// ===== Toast =====
+let toastId = 0;
+function ToastContainer({ toasts }) {
+  return (
+    <div className="toast-container">
+      {toasts.map(t => <div key={t.id} className={`toast toast-${t.type}`}>{t.msg}</div>)}
+    </div>
+  );
+}
+
+// ===== Meter =====
+function Meter({ value, max, label }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  const cls = pct < 50 ? 'meter-green' : pct < 80 ? 'meter-amber' : 'meter-red';
+  return (
+    <div>
+      <div className="meter"><div className={`meter-fill ${cls}`} style={{ width: `${pct}%` }}/></div>
+      <div className="meter-info">
+        <span>{label}</span>
+        <span className="mono">{pct.toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+}
+
+// ===== Login =====
+function LoginPage({ onLogin, addToast }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const data = await api.post('/api/user/login', { email, password });
+      api.token = data.token;
+      localStorage.setItem('user_token', data.token);
+      onLogin(data.user);
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-box card">
+        <h1>OpenClaw</h1>
+        <p>Sign in to your hosting panel</p>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ===== Dashboard =====
+function Dashboard({ addToast }) {
+  const [profile, setProfile] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [logs, setLogs] = useState(null);
+  const [showToken, setShowToken] = useState(false);
+  const [showPairToken, setShowPairToken] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  // Telegram form
+  const [tgBot, setTgBot] = useState('');
+  const [tgChat, setTgChat] = useState('');
+  const [tgSaving, setTgSaving] = useState(false);
+
+  // API key form
+  const [apiProvider, setApiProvider] = useState('deepseek');
+  const [apiKeyVal, setApiKeyVal] = useState('');
+  const [apiSaving, setApiSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const p = await api.get('/api/user/profile');
+      setProfile(p);
+      setTgBot(p.telegram_bot_token || '');
+      setTgChat(p.telegram_chat_id || '');
+      setApiProvider(p.api_key_provider || 'deepseek');
+    } catch (err) { addToast(err.message, 'error'); }
+    try { setStats(await api.get('/api/user/stats')); } catch (_) {}
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    try {
+      await api.post('/api/user/restart');
+      addToast('Service restarting...', 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+    setRestarting(false);
+  };
+
+  const handleTelegram = async () => {
+    setTgSaving(true);
+    try {
+      await api.post('/api/user/telegram', { botToken: tgBot, chatId: tgChat });
+      addToast('Telegram settings saved', 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+    setTgSaving(false);
+  };
+
+  const handleApiKey = async () => {
+    if (!apiKeyVal) return addToast('Enter an API key', 'error');
+    setApiSaving(true);
+    try {
+      await api.post('/api/user/apikey', { provider: apiProvider, apiKey: apiKeyVal });
+      addToast('API key saved and service redeploying', 'success');
+      setApiKeyVal('');
+    } catch (err) { addToast(err.message, 'error'); }
+    setApiSaving(false);
+  };
+
+  const loadLogs = async () => {
+    try {
+      const l = await api.get('/api/user/logs');
+      setLogs(typeof l === 'string' ? l : JSON.stringify(l, null, 2));
+    } catch (err) { setLogs('Failed to load logs: ' + err.message); }
+    setShowLogs(true);
+  };
+
+  if (!profile) return <div className="container" style={{ color: 'var(--text-dim)', paddingTop: 48 }}>Loading...</div>;
+
+  // Parse stats
+  const containerStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
+  const cpuPct = containerStat?.cpuPercent ?? containerStat?.cpu ?? 0;
+  const memUsed = containerStat?.memoryUsage || '0 MB';
+  const memPct = containerStat?.memoryPercent ?? containerStat?.memPercent ?? 0;
+
+  return (
+    <div className="container">
+      {/* Welcome */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 600 }}>Hello, {profile.username}</h2>
+        <span className={`badge badge-${profile.status}`}>{profile.status}</span>
+        <span className="badge badge-plan" style={{ marginLeft: 6 }}>{profile.plan}</span>
+      </div>
+
+      {/* Service Info */}
+      <div className="card">
+        <h3>Service Info</h3>
+        <div className="info-row">
+          <span className="info-label">OpenClaw URL</span>
+          <a href={profile.openclaw_url} target="_blank" rel="noopener" className="info-value mono">{profile.openclaw_url}</a>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Domain</span>
+          <span className="info-value mono">{profile.domain}</span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Gateway Token</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="info-value mono" style={{ fontSize: 11 }}>
+              {showToken ? profile.gateway_token : '••••••••••••••••'}
+            </span>
+            <span className="token-toggle" onClick={() => setShowToken(!showToken)}>
+              {showToken ? 'Hide' : 'Show'}
+            </span>
+          </div>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Plan</span>
+          <span className="info-value">{profile.plan} ({profile.cpu_limit} CPU / {profile.memory_limit}MB)</span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Expires</span>
+          <span className="info-value">{profile.expires_at ? new Date(profile.expires_at).toLocaleDateString() : 'Never'}</span>
+        </div>
+      </div>
+
+      {/* Resource Usage */}
+      <div className="card">
+        <h3>Resource Usage</h3>
+        <div style={{ marginBottom: 12 }}>
+          <Meter value={cpuPct} max={100} label={`CPU (${cpuPct.toFixed(1)}%)`} />
+        </div>
+        <div>
+          <Meter value={memPct} max={100} label={`RAM ${memUsed} / ${profile.memory_limit}MB`} />
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="card">
+        <h3>Quick Actions</h3>
+        <div className="quick-actions">
+          <button className="btn btn-primary" onClick={handleRestart} disabled={restarting}>
+            {restarting ? 'Restarting...' : 'Restart Service'}
+          </button>
+          <a href={profile.openclaw_url} target="_blank" rel="noopener" className="btn">Open OpenClaw Dashboard</a>
+          <button className="btn" onClick={loadLogs}>View Logs</button>
+        </div>
+      </div>
+
+      {/* Pairing / Connection Guide */}
+      <div className="card">
+        <h3>Pairing / Connect Your Client</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 14, lineHeight: 1.6 }}>
+          Use the details below to connect your OpenClaw client (CLI, VS Code, or any compatible app) to your hosted instance.
+        </p>
+
+        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 1: Open your OpenClaw client settings</div>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+            In your OpenClaw desktop app or CLI, go to <strong>Settings &rarr; Remote Gateway</strong> or use the command <code style={{ background: '#e4e4e7', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>openclaw gateway connect</code>
+          </div>
+        </div>
+
+        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 2: Enter your Gateway URL</div>
+          <div className="token-display" style={{ marginBottom: 4 }}>
+            <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}</span>
+            <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.openclaw_url); addToast('URL copied!', 'success'); }}>Copy</span>
+          </div>
+        </div>
+
+        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 3: Enter your Gateway Token</div>
+          <div className="token-display" style={{ marginBottom: 4 }}>
+            <span style={{ flex: 1, wordBreak: 'break-all' }}>{showPairToken ? profile.gateway_token : '••••••••••••••••••••••••••••••••'}</span>
+            <span className="token-toggle" onClick={() => setShowPairToken(!showPairToken)}>{showPairToken ? 'Hide' : 'Show'}</span>
+            <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.gateway_token); addToast('Token copied!', 'success'); }}>Copy</span>
+          </div>
+        </div>
+
+        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 4: Click "Connect" or "Pair"</div>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+            Your client will verify the connection. Once paired, all your AI requests will be routed through your hosted OpenClaw instance.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14, padding: 12, background: '#eef2ff', borderRadius: 8, border: '1px solid rgba(99,102,241,.2)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Quick Pair via CLI</div>
+          <div className="token-display" style={{ background: '#18181b', color: '#a1a1aa', fontSize: 11 }}>
+            <span style={{ flex: 1 }}>openclaw gateway connect --url {profile.openclaw_url} --token {showPairToken ? profile.gateway_token : '&lt;your-token&gt;'}</span>
+            <span className="token-toggle" style={{ color: '#818cf8' }} onClick={() => { navigator.clipboard.writeText(`openclaw gateway connect --url ${profile.openclaw_url} --token ${profile.gateway_token}`); addToast('Command copied!', 'success'); }}>Copy</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Logs (expandable) */}
+      {showLogs && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ marginBottom: 0 }}>Service Logs</h3>
+            <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setShowLogs(false)}>Close</button>
+          </div>
+          <div className="logs-box" style={{ marginTop: 12 }}>{logs || 'No logs available.'}</div>
+        </div>
+      )}
+
+      {/* Telegram Setup */}
+      <div className="card">
+        <h3>Telegram Integration</h3>
+        {profile.telegram_bot_token && (
+          <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>Connected</div>
+        )}
+        <div className="form-row">
+          <div className="form-group">
+            <label>Bot Token</label>
+            <input value={tgBot} onChange={e => setTgBot(e.target.value)} placeholder="123456:ABC-DEF..." />
+          </div>
+          <div className="form-group">
+            <label>Chat ID</label>
+            <input value={tgChat} onChange={e => setTgChat(e.target.value)} placeholder="123456789" />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={handleTelegram} disabled={tgSaving}>
+          {tgSaving ? 'Saving...' : 'Save Telegram Settings'}
+        </button>
+      </div>
+
+      {/* API Key Setup */}
+      <div className="card">
+        <h3>AI API Key</h3>
+        {profile.api_key_provider && (
+          <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>
+            Current: {profile.api_key_provider}
+          </div>
+        )}
+        <div className="form-row">
+          <div className="form-group">
+            <label>Provider</label>
+            <select value={apiProvider} onChange={e => setApiProvider(e.target.value)}>
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>API Key</label>
+            <input type="password" value={apiKeyVal} onChange={e => setApiKeyVal(e.target.value)} placeholder="sk-..." />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={handleApiKey} disabled={apiSaving}>
+          {apiSaving ? 'Saving...' : 'Save API Key'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ===== CmdBox (copyable command) =====
+function CmdBox({ children, onCopy }) {
+  const copy = () => { navigator.clipboard.writeText(children); if (onCopy) onCopy('Command copied!'); };
+  return (
+    <div className="cmd-box">
+      {children}
+      <button className="copy-btn" onClick={copy}>Copy</button>
+    </div>
+  );
+}
+
+// ===== Console Page =====
+function ConsolePage({ addToast }) {
+  const termRef = useRef(null);
+  const wsRef = useRef(null);
+  const xtermRef = useRef(null);
+  const fitRef = useRef(null);
+  const [status, setStatus] = useState('disconnected');
+
+  const connect = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState <= 1) return;
+    setStatus('connecting');
+
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${window.location.host}/ws/terminal?token=${api.token}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {};
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'output') {
+          xtermRef.current?.write(msg.data);
+        } else if (msg.type === 'connected') {
+          setStatus('connected');
+          addToast(msg.data, 'success');
+        } else if (msg.type === 'error') {
+          setStatus('disconnected');
+          xtermRef.current?.write(`\r\n\x1b[31m${msg.data}\x1b[0m\r\n`);
+        } else if (msg.type === 'exit') {
+          setStatus('disconnected');
+          xtermRef.current?.write('\r\n\x1b[33mSession ended.\x1b[0m\r\n');
+        }
+      } catch {
+        xtermRef.current?.write(e.data);
+      }
+    };
+
+    ws.onclose = () => { setStatus('disconnected'); };
+    ws.onerror = () => { setStatus('disconnected'); };
+  }, []);
+
+  useEffect(() => {
+    if (!termRef.current || xtermRef.current) return;
+
+    const term = new window.Terminal({
+      theme: {
+        background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#f5e0dc',
+        selectionBackground: '#585b70', black: '#45475a', red: '#f38ba8',
+        green: '#a6e3a1', yellow: '#f9e2af', blue: '#89b4fa',
+        magenta: '#cba6f7', cyan: '#94e2d5', white: '#bac2de',
+      },
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 13,
+      cursorBlink: true,
+      scrollback: 5000,
+    });
+
+    const fit = new window.FitAddon.FitAddon();
+    term.loadAddon(fit);
+    term.open(termRef.current);
+    fit.fit();
+    xtermRef.current = term;
+    fitRef.current = fit;
+
+    term.write('\x1b[36mOpenClaw Terminal\x1b[0m\r\n');
+    term.write('\x1b[90mClick "Connect" to open a shell in your container.\x1b[0m\r\n\r\n');
+
+    term.onData((data) => {
+      if (wsRef.current?.readyState === 1) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+    });
+
+    const handleResize = () => { fit.fit(); };
+    window.addEventListener('resize', handleResize);
+
+    // Resize terminal in container when fit changes
+    const resizeObs = new ResizeObserver(() => {
+      fit.fit();
+      if (wsRef.current?.readyState === 1) {
+        wsRef.current.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    });
+    resizeObs.observe(termRef.current);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      resizeObs.disconnect();
+      wsRef.current?.close();
+      term.dispose();
+    };
+  }, []);
+
+  const disconnect = () => {
+    wsRef.current?.close();
+    setStatus('disconnected');
+  };
+
+  return (
+    <div className="container">
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>Console</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>Direct shell access to your OpenClaw container. Run commands, configure settings, and manage your instance.</p>
+      </div>
+
+      <div className="terminal-container">
+        <div className="terminal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div>
+              <span className="dot" style={{ background: '#f38ba8' }} />
+              <span className="dot" style={{ background: '#f9e2af' }} />
+              <span className="dot" style={{ background: '#a6e3a1' }} />
+            </div>
+            <span className="title">openclaw-gateway — bash</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className={`terminal-status ${status}`}>{status}</span>
+            {status !== 'connected' ? (
+              <button className="btn btn-primary" style={{ padding: '4px 14px', fontSize: 12 }} onClick={connect} disabled={status === 'connecting'}>
+                {status === 'connecting' ? 'Connecting...' : 'Connect'}
+              </button>
+            ) : (
+              <button className="btn btn-danger" style={{ padding: '4px 14px', fontSize: 12 }} onClick={disconnect}>Disconnect</button>
+            )}
+          </div>
+        </div>
+        <div className="terminal-body" ref={termRef} />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8 }}>Quick Commands</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 8 }}>
+          {[
+            { label: 'Create alias shortcut', cmd: 'echo "alias openclaw=\'node dist/index.js\'" >> ~/.bashrc && source ~/.bashrc' },
+            { label: 'Run onboarding wizard', cmd: 'node dist/index.js onboard --no-install-daemon' },
+            { label: 'Get dashboard URL', cmd: 'node dist/index.js dashboard --no-open' },
+            { label: 'List devices', cmd: 'node dist/index.js devices list' },
+            { label: 'List channels', cmd: 'node dist/index.js channels list' },
+            { label: 'Connect WhatsApp', cmd: 'node dist/index.js channels login' },
+          ].map((c, i) => (
+            <div key={i} style={{ background: '#f4f4f5', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{c.label}</div>
+                <div className="mono" style={{ fontSize: 11, color: 'var(--text)' }}>{c.cmd.length > 40 ? c.cmd.slice(0, 40) + '...' : c.cmd}</div>
+              </div>
+              <button className="btn" style={{ padding: '2px 8px', fontSize: 10, whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  if (wsRef.current?.readyState === 1) {
+                    wsRef.current.send(JSON.stringify({ type: 'input', data: c.cmd + '\n' }));
+                  } else {
+                    navigator.clipboard.writeText(c.cmd);
+                    addToast('Copied! Connect first to run.', 'success');
+                  }
+                }}>
+                {wsRef.current?.readyState === 1 ? 'Run' : 'Copy'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Setup Guide Page =====
+function SetupGuidePage({ addToast }) {
+  const [profile, setProfile] = useState(null);
+  useEffect(() => { api.get('/api/user/profile').then(setProfile).catch(() => {}); }, []);
+  const copy = (text) => { navigator.clipboard.writeText(text); addToast('Copied!', 'success'); };
+
+  return (
+    <div className="container">
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Your OpenClaw is Ready</h2>
+        <p style={{ color: 'var(--text-dim)', fontSize: 14 }}>Complete setup guide for your personal AI assistant hosted by RarHost.</p>
+      </div>
+
+      <div className="stat-row">
+        <div className="stat-box"><div className="num">250K+</div><div className="lbl">GitHub Stars</div></div>
+        <div className="stat-box"><div className="num">50+</div><div className="lbl">Channels</div></div>
+        <div className="stat-box"><div className="num">MIT</div><div className="lbl">Open Source</div></div>
+        <div className="stat-box"><div className="num">24/7</div><div className="lbl">Always Running</div></div>
+      </div>
+
+      {/* Step 1 */}
+      <div className="guide-step">
+        <div className="step-num">1</div>
+        <span className="step-badge first">First</span>
+        <h4>Open Console & Set Up Alias</h4>
+        <p>Access your OpenClaw console and create a shortcut command:</p>
+        <ol style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20, marginTop: 8 }}>
+          <li>Go to the <strong>Console</strong> tab above and click <strong>Connect</strong></li>
+          <li>Run this command to create a shortcut:</li>
+        </ol>
+        <CmdBox onCopy={addToast}>{'echo "alias openclaw=\'node dist/index.js\'" >> ~/.bashrc'}</CmdBox>
+        <ol start={3} style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20 }}>
+          <li>Disconnect and reconnect (this loads the alias)</li>
+        </ol>
+        <div className="tip-box">Why this alias? Instead of typing <code>node dist/index.js</code> every time, you can just type <code>openclaw</code>.</div>
+      </div>
+
+      {/* Step 2 */}
+      <div className="guide-step">
+        <div className="step-num">2</div>
+        <span className="step-badge critical">Critical</span>
+        <h4>Run the Onboarding Wizard</h4>
+        <p>This is the most important step. The onboarding wizard sets up your AI model, channels, and configuration.</p>
+        <CmdBox onCopy={addToast}>openclaw onboard --no-install-daemon</CmdBox>
+        <p style={{ marginTop: 8 }}>Or if alias doesn't work:</p>
+        <CmdBox onCopy={addToast}>node dist/index.js onboard --no-install-daemon</CmdBox>
+        <p style={{ marginTop: 12 }}>The wizard will ask you several questions:</p>
+        <table className="guide-table">
+          <thead><tr><th>Question</th><th>Your Answer</th></tr></thead>
+          <tbody>
+            <tr><td>I understand this is powerful and inherently risky. Continue?</td><td><strong>Yes</strong></td></tr>
+            <tr><td>Onboarding mode</td><td><strong>QuickStart</strong></td></tr>
+            <tr><td>Model/auth provider</td><td><strong>Google (free) / Anthropic / OpenAI</strong></td></tr>
+            <tr><td>Auth method</td><td><strong>API Key</strong></td></tr>
+            <tr><td>Enter API Key</td><td><strong>Paste your API key</strong></td></tr>
+            <tr><td>Default model</td><td><strong>Choose preferred model</strong></td></tr>
+            <tr><td>Select channel (Quickstart)</td><td><strong>Telegram (or your channel)</strong></td></tr>
+            <tr><td>Telegram Bot Token</td><td><strong>Paste your bot token</strong></td></tr>
+            <tr><td>Configure skills now?</td><td><strong>No (can do later)</strong></td></tr>
+            <tr><td>Enable hooks?</td><td><strong>Skip for now</strong></td></tr>
+            <tr><td>How to hatch your bot?</td><td><strong>Open the Web UI</strong></td></tr>
+            <tr><td>Install shell completion?</td><td><strong>Yes</strong></td></tr>
+          </tbody>
+        </table>
+        <div className="warn-box">You need an API Key! Get a free Google Gemini key from <strong>aistudio.google.com/apikey</strong> — or use Anthropic / OpenAI.</div>
+        <div className="tip-box">How to get Telegram Bot Token: Open Telegram &rarr; Search <strong>@BotFather</strong> &rarr; Send <code>/newbot</code> &rarr; Follow the steps &rarr; Copy the token.</div>
+      </div>
+
+      {/* Step 3 */}
+      <div className="guide-step">
+        <div className="step-num">3</div>
+        <h4>Open Your Dashboard</h4>
+        <p>Get your dashboard token to access the OpenClaw Control UI:</p>
+        <ol style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20, marginTop: 8 }}>
+          <li>Open the <strong>Console</strong> tab and connect</li>
+          <li>Run this command:</li>
+        </ol>
+        <CmdBox onCopy={addToast}>node dist/index.js dashboard --no-open</CmdBox>
+        <ol start={3} style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20 }}>
+          <li>You'll see a URL like: <code>/?token=abc123...</code> — copy the full token part</li>
+          {profile && <li>Open <a href={profile.openclaw_url} target="_blank" rel="noopener">{profile.openclaw_url}</a> and append the token URL</li>}
+        </ol>
+        <div className="tip-box">Bookmark the full Dashboard URL! You'll need it every time you access the Control UI.</div>
+      </div>
+
+      {/* Step 4 */}
+      <div className="guide-step">
+        <div className="step-num">4</div>
+        <h4>Approve Your Device</h4>
+        <p>When you first open the Dashboard, your browser becomes a "Pending" device that needs approval:</p>
+        <CmdBox onCopy={addToast}>node dist/index.js devices list</CmdBox>
+        <p style={{ marginTop: 8 }}>If you see a device under "Pending", copy its Request ID and approve:</p>
+        <CmdBox onCopy={addToast}>{'node dist/index.js devices approve <request-id>'}</CmdBox>
+        <div className="tip-box">If the device is already shown under "Paired", skip this step — you're already connected!</div>
+      </div>
+
+      {/* Step 5 */}
+      <div className="guide-step">
+        <div className="step-num">5</div>
+        <span className="step-badge popular">Popular</span>
+        <h4>Connect Telegram</h4>
+        <p>OpenClaw can answer you directly on Telegram:</p>
+        <ol style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20, marginTop: 8 }}>
+          <li>Open Telegram and send any message to your OpenClaw bot</li>
+          <li>It will reply with a <strong>Pairing Code</strong> like: <code>FJ4VWG8R</code></li>
+          <li>Go to Console and run:</li>
+        </ol>
+        <CmdBox onCopy={addToast}>node dist/index.js pairing approve telegram YOUR_CODE</CmdBox>
+        <p style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>Example: <code>node dist/index.js pairing approve telegram FJ4VWG8R</code></p>
+        <div className="warn-box">Important: You must include <code>telegram</code> before the code. Just the code alone will give an error.</div>
+      </div>
+
+      {/* Step 6 */}
+      <div className="guide-step">
+        <div className="step-num">6</div>
+        <span className="step-badge optional">Optional</span>
+        <h4>Connect WhatsApp</h4>
+        <p>To connect WhatsApp, run the channel login command in Console:</p>
+        <CmdBox onCopy={addToast}>node dist/index.js channels login</CmdBox>
+        <p style={{ marginTop: 4 }}>Select WhatsApp, then scan the QR code with your WhatsApp app (Linked Devices).</p>
+      </div>
+
+      {/* Step 7 */}
+      <div className="guide-step">
+        <div className="step-num">7</div>
+        <h4>Start Chatting!</h4>
+        <p>You're all set! Your AI assistant is now live. You can interact through:</p>
+        <ul style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 2, paddingLeft: 20, marginTop: 8 }}>
+          <li><strong>Web Dashboard</strong> — the Control UI from Step 3</li>
+          <li><strong>Telegram</strong> — send messages directly to your bot</li>
+          <li><strong>WhatsApp</strong> — if connected in Step 6</li>
+        </ul>
+        <div className="tip-box">Try asking: "What can you do?" or "Help me organize my tasks" to get started.</div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Main App =====
+function App() {
+  const [loggedIn, setLoggedIn] = useState(!!api.token);
+  const [page, setPage] = useState('dashboard');
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = useCallback((msg, type = 'success') => {
+    const id = ++toastId;
+    setToasts(prev => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+  }, []);
+
+  const logout = () => {
+    localStorage.removeItem('user_token');
+    api.token = null;
+    setLoggedIn(false);
+  };
+
+  if (!loggedIn) {
+    return <>
+      <ToastContainer toasts={toasts} />
+      <LoginPage onLogin={() => setLoggedIn(true)} addToast={addToast} />
+    </>;
+  }
+
+  const pages = { dashboard: Dashboard, console: ConsolePage, guide: SetupGuidePage };
+  const PageComponent = pages[page];
+
+  return (
+    <>
+      <ToastContainer toasts={toasts} />
+      <div className="topbar">
+        <div className="topbar-brand">
+          <h1>OpenClaw</h1>
+          <span>User Panel</span>
+        </div>
+        <button className="btn" onClick={logout}>Logout</button>
+      </div>
+      <div className="nav-tabs">
+        <div className={`nav-tab ${page === 'dashboard' ? 'active' : ''}`} onClick={() => setPage('dashboard')}>Dashboard</div>
+        <div className={`nav-tab ${page === 'console' ? 'active' : ''}`} onClick={() => setPage('console')}>Console</div>
+        <div className={`nav-tab ${page === 'guide' ? 'active' : ''}`} onClick={() => setPage('guide')}>Setup Guide</div>
+      </div>
+      <PageComponent addToast={addToast} />
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RarHost - OpenClaw Admin Panel</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'IBM Plex Sans', sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    :root {
+      --bg: #0a0a0f; --card: #12121a; --card-hover: #1a1a25;
+      --border: #2a2a3a; --accent: #6366f1; --accent-hover: #818cf8;
+      --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
+      --text: #e4e4e7; --text-dim: #71717a; --text-muted: #52525b;
+    }
+    input, select, textarea, button { font-family: inherit; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+
+    /* Layout */
+    .layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: var(--card); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+    .sidebar-logo { padding: 24px 20px; border-bottom: 1px solid var(--border); }
+    .sidebar-logo h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .sidebar-logo p { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .sidebar-nav { flex: 1; padding: 12px 8px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; color: var(--text-dim); font-size: 14px; font-weight: 500; transition: all .15s; margin-bottom: 2px; }
+    .nav-item:hover { background: rgba(99,102,241,.1); color: var(--text); }
+    .nav-item.active { background: rgba(99,102,241,.15); color: var(--accent); }
+    .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .sidebar-footer { padding: 12px 8px; border-top: 1px solid var(--border); }
+    .main { margin-left: 240px; flex: 1; padding: 24px 32px; min-height: 100vh; }
+    .page-title { font-size: 22px; font-weight: 600; margin-bottom: 24px; }
+
+    /* Cards */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+    .stat-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: var(--card-hover); }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: rgba(34,197,94,.15); color: var(--success); }
+    .badge-suspended { background: rgba(239,68,68,.15); color: var(--danger); }
+    .badge-basic { background: rgba(99,102,241,.15); color: var(--accent); }
+    .badge-pro { background: rgba(245,158,11,.15); color: var(--warning); }
+    .badge-enterprise { background: rgba(168,85,247,.15); color: #a855f7; }
+
+    /* Buttons */
+    .btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: var(--card-hover); border-color: var(--text-muted); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.3); color: var(--danger); }
+    .btn-danger:hover { background: rgba(239,68,68,.25); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-group { display: flex; gap: 6px; }
+
+    /* Meter */
+    .meter { height: 8px; background: #1e1e2e; border-radius: 99px; overflow: hidden; }
+    .meter-fill { height: 100%; border-radius: 99px; transition: width .5s; }
+    .meter-green { background: var(--success); }
+    .meter-amber { background: var(--warning); }
+    .meter-red { background: var(--danger); }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+    .modal h2 { font-size: 18px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; }
+    .form-group input, .form-group select { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
+    .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+    /* Toast */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+    .toast { padding: 12px 16px; border-radius: 8px; font-size: 13px; animation: slideIn .3s; max-width: 360px; }
+    .toast-success { background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.3); color: var(--success); }
+    .toast-error { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.3); color: var(--danger); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+    /* Deploy Steps */
+    .deploy-steps { list-style: none; padding: 0; }
+    .deploy-steps li { padding: 6px 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .deploy-steps .done { color: var(--success); }
+    .deploy-steps .pending { color: var(--text-muted); }
+    .deploy-steps .active { color: var(--accent); }
+    .deploy-steps .error { color: var(--danger); }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Login */
+    .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-box { width: 380px; }
+    .login-box h1 { font-size: 24px; text-align: center; margin-bottom: 4px; color: var(--accent); }
+    .login-box p { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ===== API Helper =====
+const api = {
+  token: localStorage.getItem('admin_token'),
+  async request(url, opts = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(url, { ...opts, headers });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  },
+  get: (url) => api.request(url),
+  post: (url, body) => api.request(url, { method: 'POST', body: JSON.stringify(body) }),
+  put: (url, body) => api.request(url, { method: 'PUT', body: JSON.stringify(body) }),
+  del: (url) => api.request(url, { method: 'DELETE' }),
+};
+
+// ===== Toast System =====
+let toastId = 0;
+function ToastContainer({ toasts }) {
+  return (
+    <div className="toast-container">
+      {toasts.map(t => <div key={t.id} className={`toast toast-${t.type}`}>{t.msg}</div>)}
+    </div>
+  );
+}
+
+// ===== Icons =====
+const Icons = {
+  dashboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  activity: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  logout: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  check: '✓',
+};
+
+// ===== Meter Component =====
+function Meter({ value, max = 100 }) {
+  const pct = Math.min((value / max) * 100, 100);
+  const cls = pct < 50 ? 'meter-green' : pct < 80 ? 'meter-amber' : 'meter-red';
+  return (
+    <div>
+      <div className="meter"><div className={`meter-fill ${cls}`} style={{ width: `${pct}%` }}/></div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }} className="mono">{pct.toFixed(1)}%</div>
+    </div>
+  );
+}
+
+// ===== Login/Setup Page =====
+function LoginPage({ onLogin, addToast }) {
+  const [isSetup, setIsSetup] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/setup/status').then(r => r.json()).then(d => setIsSetup(d.needsSetup));
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      if (isSetup) {
+        await api.post('/api/setup', { email, password });
+        addToast('Admin account created! Please login.', 'success');
+        setIsSetup(false);
+      } else {
+        const data = await api.post('/api/admin/login', { email, password });
+        api.token = data.token;
+        localStorage.setItem('admin_token', data.token);
+        onLogin();
+      }
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+    setLoading(false);
+  };
+
+  if (isSetup === null) return null;
+
+  return (
+    <div className="login-container">
+      <div className="login-box card">
+        <h1>RarHost</h1>
+        <p>{isSetup ? 'Create your admin account' : 'Admin Panel Login'}</p>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} disabled={loading}>
+            {loading ? 'Please wait...' : isSetup ? 'Create Admin' : 'Login'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ===== Dashboard Page =====
+function DashboardPage({ addToast }) {
+  const [data, setData] = useState(null);
+
+  const load = useCallback(async () => {
+    try { setData(await api.get('/api/admin/dashboard')); } catch (err) { addToast(err.message, 'error'); }
+  }, []);
+
+  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
+
+  if (!data) return <div style={{ color: 'var(--text-dim)' }}>Loading dashboard...</div>;
+
+  const { dbStats, serverStats, containerStats } = data;
+  const cpuPct = serverStats?.cpuInfo?.usedPercentage ?? serverStats?.cpuUsagePercent ?? 0;
+  const ramPct = serverStats?.memInfo?.usedMemPercentage ?? serverStats?.memUsagePercent ?? 0;
+  const diskPct = parseFloat(serverStats?.diskInfo?.usedPercentage ?? serverStats?.diskUsagePercent ?? 0);
+
+  return (
+    <div>
+      <h2 className="page-title">Dashboard</h2>
+      <div className="stat-grid">
+        <div className="stat-card">
+          <div className="label">Total Users</div>
+          <div className="value">{dbStats.total}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Active</div>
+          <div className="value" style={{ color: 'var(--success)' }}>{dbStats.active}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">CPU Usage</div>
+          <div className="value mono">{cpuPct.toFixed(1)}%</div>
+          <Meter value={cpuPct} />
+        </div>
+        <div className="stat-card">
+          <div className="label">RAM Usage</div>
+          <div className="value mono">{ramPct.toFixed(1)}%</div>
+          <Meter value={ramPct} />
+        </div>
+        <div className="stat-card">
+          <div className="label">Disk Usage</div>
+          <div className="value mono">{diskPct.toFixed(1)}%</div>
+          <Meter value={diskPct} />
+        </div>
+      </div>
+
+      {containerStats && Array.isArray(containerStats) && containerStats.length > 0 && (
+        <div className="card">
+          <h3 style={{ fontSize: 14, marginBottom: 12, color: 'var(--text-dim)' }}>Running Containers</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Project</th><th>Service</th><th>CPU %</th><th>RAM</th><th>RAM %</th></tr></thead>
+              <tbody>
+                {containerStats.map((c, i) => {
+                  const cpu = c.stats?.cpu?.percent ?? c.cpuPercent ?? c.cpu ?? 0;
+                  const memBytes = c.stats?.memory?.usage ?? 0;
+                  const memMB = (memBytes / 1024 / 1024).toFixed(1);
+                  const memPctC = c.stats?.memory?.percent ?? c.memoryPercent ?? c.memPercent ?? 0;
+                  return (
+                    <tr key={i}>
+                      <td className="mono" style={{ fontSize: 12 }}>{c.projectName || c.name || '-'}</td>
+                      <td className="mono" style={{ fontSize: 12 }}>{c.serviceName || '-'}</td>
+                      <td className="mono">{cpu.toFixed(2)}%</td>
+                      <td className="mono">{memBytes ? `${memMB} MB` : '-'}</td>
+                      <td className="mono">{memPctC.toFixed(1)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Create User Modal =====
+function CreateUserModal({ plans, onClose, onCreated, addToast }) {
+  const [form, setForm] = useState({ username: '', email: '', password: '', plan: 'basic', notes: '' });
+  const [deploying, setDeploying] = useState(false);
+  const [steps, setSteps] = useState([]);
+
+  const deploy = async () => {
+    setDeploying(true);
+    const stepList = [
+      'Creating Easypanel project...',
+      'Deploying OpenClaw container...',
+      'Configuring domain & tokens...',
+      'Setting resource limits...',
+      'Finalizing deployment...',
+    ];
+    setSteps(stepList.map((s, i) => ({ text: s, status: i === 0 ? 'active' : 'pending' })));
+
+    // Simulate step progress while actual API call runs
+    let stepIdx = 0;
+    const interval = setInterval(() => {
+      stepIdx++;
+      if (stepIdx < stepList.length) {
+        setSteps(prev => prev.map((s, i) => ({
+          ...s,
+          status: i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'pending',
+        })));
+      }
+    }, 1200);
+
+    try {
+      const result = await api.post('/api/admin/users', form);
+      clearInterval(interval);
+      setSteps(prev => prev.map(s => ({ ...s, status: 'done' })));
+      addToast(`User ${form.username} deployed successfully!`, 'success');
+      setTimeout(() => { onCreated(); onClose(); }, 800);
+    } catch (err) {
+      clearInterval(interval);
+      setSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+      addToast(err.message, 'error');
+      setDeploying(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2>Create New User</h2>
+        {!deploying ? (
+          <>
+            <div className="form-group">
+              <label>Username</label>
+              <input value={form.username} onChange={e => setForm({...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')})} placeholder="john" />
+            </div>
+            <div className="form-group">
+              <label>Email</label>
+              <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="john@example.com" />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} placeholder="Min 6 characters" />
+            </div>
+            <div className="form-group">
+              <label>Plan</label>
+              <select value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}>
+                {plans.map(p => <option key={p.name} value={p.name}>{p.name} - {p.cpu_limit} CPU / {p.memory_limit}MB / {p.price_monthly} BDT</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Notes (optional)</label>
+              <input value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+            </div>
+            <div className="form-actions">
+              <button className="btn" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" onClick={deploy} disabled={!form.username || !form.email || !form.password}>Deploy User</button>
+            </div>
+          </>
+        ) : (
+          <ul className="deploy-steps">
+            {steps.map((s, i) => (
+              <li key={i} className={s.status}>
+                {s.status === 'done' && <span style={{ color: 'var(--success)' }}>✓</span>}
+                {s.status === 'active' && <span className="spinner" />}
+                {s.status === 'pending' && <span style={{ width: 14, display: 'inline-block' }}>○</span>}
+                {s.status === 'error' && <span style={{ color: 'var(--danger)' }}>✗</span>}
+                {s.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== Users Page =====
+function UsersPage({ addToast }) {
+  const [users, setUsers] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [u, p] = await Promise.all([api.get('/api/admin/users'), api.get('/api/admin/plans')]);
+      setUsers(u);
+      setPlans(p);
+    } catch (err) { addToast(err.message, 'error'); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSuspend = async (user) => {
+    try {
+      await api.post(`/api/admin/users/${user.id}/suspend`);
+      addToast(`${user.username} suspended`, 'success');
+      load();
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+
+  const handleActivate = async (user) => {
+    try {
+      await api.post(`/api/admin/users/${user.id}/activate`);
+      addToast(`${user.username} activated`, 'success');
+      load();
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+
+  const handleDeploy = async (user) => {
+    try {
+      await api.post(`/api/admin/users/${user.id}/deploy`);
+      addToast(`${user.username} redeployed`, 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+
+  const handleDelete = async (user) => {
+    if (!confirm(`Delete user "${user.username}"? This will destroy their OpenClaw instance and ALL data. This cannot be undone.`)) return;
+    try {
+      await api.del(`/api/admin/users/${user.id}`);
+      addToast(`${user.username} deleted`, 'success');
+      load();
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h2 className="page-title" style={{ marginBottom: 0 }}>Users</h2>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ New User</button>
+      </div>
+
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>User</th><th>Plan</th><th>Status</th><th>Domain</th><th>Resources</th><th>Expires</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{u.username}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
+                  </td>
+                  <td><span className={`badge badge-${u.plan}`}>{u.plan}</span></td>
+                  <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
+                  <td>
+                    {u.domain ? (
+                      <a href={`https://${u.domain}`} target="_blank" rel="noopener" className="mono" style={{ fontSize: 12 }}>{u.domain}</a>
+                    ) : '-'}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>{u.cpu_limit} CPU / {u.memory_limit}MB</td>
+                  <td style={{ fontSize: 12 }}>{u.expires_at ? new Date(u.expires_at).toLocaleDateString() : 'Never'}</td>
+                  <td>
+                    <div className="btn-group">
+                      {u.status === 'active' ? (
+                        <button className="btn btn-sm" onClick={() => handleSuspend(u)} title="Suspend">Suspend</button>
+                      ) : (
+                        <button className="btn btn-sm" onClick={() => handleActivate(u)} title="Activate" style={{ color: 'var(--success)' }}>Activate</button>
+                      )}
+                      <button className="btn btn-sm" onClick={() => handleDeploy(u)} title="Redeploy">Deploy</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(u)} title="Delete">Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {users.length === 0 && (
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>No users yet. Click "New User" to create one.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showCreate && <CreateUserModal plans={plans} onClose={() => setShowCreate(false)} onCreated={load} addToast={addToast} />}
+    </div>
+  );
+}
+
+// ===== Activity Page =====
+function ActivityPage({ addToast }) {
+  const [logs, setLogs] = useState([]);
+
+  useEffect(() => {
+    api.get('/api/admin/activity').then(setLogs).catch(err => addToast(err.message, 'error'));
+  }, []);
+
+  return (
+    <div>
+      <h2 className="page-title">Activity Log</h2>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody>
+              {logs.map(l => (
+                <tr key={l.id}>
+                  <td className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString()}</td>
+                  <td>{l.username || '-'}</td>
+                  <td><span className="badge badge-basic">{l.action}</span></td>
+                  <td style={{ fontSize: 12, color: 'var(--text-dim)' }}>{l.details}</td>
+                </tr>
+              ))}
+              {logs.length === 0 && (
+                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>No activity yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Main App =====
+function App() {
+  const [loggedIn, setLoggedIn] = useState(!!api.token);
+  const [page, setPage] = useState('dashboard');
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = useCallback((msg, type = 'success') => {
+    const id = ++toastId;
+    setToasts(prev => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+  }, []);
+
+  const logout = () => {
+    localStorage.removeItem('admin_token');
+    api.token = null;
+    setLoggedIn(false);
+  };
+
+  if (!loggedIn) {
+    return <>
+      <ToastContainer toasts={toasts} />
+      <LoginPage onLogin={() => setLoggedIn(true)} addToast={addToast} />
+    </>;
+  }
+
+  const pages = { dashboard: DashboardPage, users: UsersPage, activity: ActivityPage };
+  const PageComponent = pages[page];
+
+  return (
+    <>
+      <ToastContainer toasts={toasts} />
+      <div className="layout">
+        <div className="sidebar">
+          <div className="sidebar-logo">
+            <h1>RarHost</h1>
+            <p>OpenClaw Admin Panel</p>
+          </div>
+          <div className="sidebar-nav">
+            <div className={`nav-item ${page === 'dashboard' ? 'active' : ''}`} onClick={() => setPage('dashboard')}>
+              {Icons.dashboard} Dashboard
+            </div>
+            <div className={`nav-item ${page === 'users' ? 'active' : ''}`} onClick={() => setPage('users')}>
+              {Icons.users} Users
+            </div>
+            <div className={`nav-item ${page === 'activity' ? 'active' : ''}`} onClick={() => setPage('activity')}>
+              {Icons.activity} Activity
+            </div>
+          </div>
+          <div className="sidebar-footer">
+            <div className="nav-item" onClick={logout}>
+              {Icons.logout} Logout
+            </div>
+          </div>
+        </div>
+        <div className="main">
+          <PageComponent addToast={addToast} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "openclaw-panel",
+  "version": "1.0.0",
+  "description": "Multi-tenant OpenClaw AI Assistant hosting panel for RarHost",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.7.0",
+    "dockerode": "^4.0.9",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.19.0"
+  }
+}
