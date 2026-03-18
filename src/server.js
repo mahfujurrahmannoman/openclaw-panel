@@ -83,16 +83,15 @@ app.get('/api/admin/users', verifyToken, adminOnly, (req, res) => {
 });
 
 app.post('/api/admin/users', verifyToken, adminOnly, async (req, res) => {
-  const { username, email, password, plan, notes, expires_at } = req.body;
+  const { username, email, password, notes, expires_at } = req.body;
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'Username, email, and password required' });
   }
-  // Check uniqueness
   if (db.getUserByUsername(username)) {
     return res.status(400).json({ error: 'Username already taken' });
   }
 
-  const planData = db.getPlanByName(plan || 'basic');
+  const planData = db.getPlanByName('unlimited');
   try {
     // Deploy OpenClaw instance
     const deployment = await easypanel.deployOpenClawInstance(username, {
@@ -108,15 +107,15 @@ app.post('/api/admin/users', verifyToken, adminOnly, async (req, res) => {
       domain: deployment.domain,
       gateway_token: deployment.gatewayToken,
       openclaw_url: deployment.url,
-      plan: plan || 'basic',
-      cpu_limit: planData?.cpu_limit || 1,
-      memory_limit: planData?.memory_limit || 1024,
+      plan: 'unlimited',
+      cpu_limit: planData?.cpu_limit || 4,
+      memory_limit: planData?.memory_limit || 4096,
       expires_at: expires_at || null,
       notes: notes || null,
     });
 
     const user = db.getUserByUsername(username);
-    db.logActivity(user.id, 'user_created', `User ${username} created with plan ${plan || 'basic'}`);
+    db.logActivity(user.id, 'user_created', `User ${username} created with unlimited plan`);
     res.json({ success: true, user, deployment });
   } catch (err) {
     res.status(500).json({ error: `Deployment failed: ${err.message}` });

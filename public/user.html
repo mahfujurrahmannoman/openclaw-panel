@@ -319,7 +319,7 @@ function Dashboard({ addToast }) {
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 22, fontWeight: 600 }}>Hello, {profile.username}</h2>
         <span className={`badge badge-${profile.status}`}>{profile.status}</span>
-        <span className="badge badge-plan" style={{ marginLeft: 6 }}>{profile.plan}</span>
+        <span className="badge" style={{ marginLeft: 6, background: '#f3e8ff', color: '#7c3aed' }}>unlimited</span>
       </div>
 
       {/* Service Info */}
@@ -346,7 +346,7 @@ function Dashboard({ addToast }) {
         </div>
         <div className="info-row">
           <span className="info-label">Plan</span>
-          <span className="info-value">{profile.plan} ({profile.cpu_limit} CPU / {profile.memory_limit}MB)</span>
+          <span className="info-value" style={{ color: '#7c3aed', fontWeight: 600 }}>Unlimited (4 CPU / 4GB RAM / All Models)</span>
         </div>
         <div className="info-row">
           <span className="info-label">Expires</span>

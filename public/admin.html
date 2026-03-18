@@ -297,8 +297,8 @@ function DashboardPage({ addToast }) {
 }
 
 // ===== Create User Modal =====
-function CreateUserModal({ plans, onClose, onCreated, addToast }) {
-  const [form, setForm] = useState({ username: '', email: '', password: '', plan: 'basic', notes: '' });
+function CreateUserModal({ onClose, onCreated, addToast }) {
+  const [form, setForm] = useState({ username: '', email: '', password: '', plan: 'unlimited', notes: '' });
   const [deploying, setDeploying] = useState(false);
   const [steps, setSteps] = useState([]);
 
@@ -357,11 +357,9 @@ function CreateUserModal({ plans, onClose, onCreated, addToast }) {
               <label>Password</label>
               <input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} placeholder="Min 6 characters" />
             </div>
-            <div className="form-group">
-              <label>Plan</label>
-              <select value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}>
-                {plans.map(p => <option key={p.name} value={p.name}>{p.name} - {p.cpu_limit} CPU / {p.memory_limit}MB / {p.price_monthly} BDT</option>)}
-              </select>
+            <div style={{ background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Unlimited Plan</div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>4 CPU / 4GB RAM / Unlimited AI Models / All Channels / 24/7 Uptime</div>
             </div>
             <div className="form-group">
               <label>Notes (optional)</label>
@@ -393,14 +391,11 @@ function CreateUserModal({ plans, onClose, onCreated, addToast }) {
 // ===== Users Page =====
 function UsersPage({ addToast }) {
   const [users, setUsers] = useState([]);
-  const [plans, setPlans] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [u, p] = await Promise.all([api.get('/api/admin/users'), api.get('/api/admin/plans')]);
-      setUsers(u);
-      setPlans(p);
+      setUsers(await api.get('/api/admin/users'));
     } catch (err) { addToast(err.message, 'error'); }
   }, []);
 
@@ -458,7 +453,7 @@ function UsersPage({ addToast }) {
                     <div style={{ fontWeight: 600 }}>{u.username}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
                   </td>
-                  <td><span className={`badge badge-${u.plan}`}>{u.plan}</span></td>
+                  <td><span className="badge" style={{ background: 'rgba(168,85,247,.15)', color: '#a855f7' }}>unlimited</span></td>
                   <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
                   <td>
                     {u.domain ? (
@@ -488,7 +483,7 @@ function UsersPage({ addToast }) {
         </div>
       </div>
 
-      {showCreate && <CreateUserModal plans={plans} onClose={() => setShowCreate(false)} onCreated={load} addToast={addToast} />}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={load} addToast={addToast} />}
     </div>
   );
 }

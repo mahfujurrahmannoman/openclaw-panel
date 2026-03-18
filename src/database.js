@@ -44,9 +44,9 @@ class PanelDatabase {
         gateway_token TEXT,
         openclaw_url TEXT,
         status TEXT DEFAULT 'active' CHECK(status IN ('active','suspended')),
-        plan TEXT DEFAULT 'basic',
-        cpu_limit REAL DEFAULT 1,
-        memory_limit INTEGER DEFAULT 1024,
+        plan TEXT DEFAULT 'unlimited',
+        cpu_limit REAL DEFAULT 4,
+        memory_limit INTEGER DEFAULT 4096,
         expires_at DATETIME,
         telegram_bot_token TEXT,
         telegram_chat_id TEXT,
@@ -67,15 +67,12 @@ class PanelDatabase {
       );
     `);
 
-    // Seed default plans if empty
+    // Seed default plan if empty
     const planCount = this.db.prepare('SELECT COUNT(*) as cnt FROM plans').get();
     if (planCount.cnt === 0) {
-      const insert = this.db.prepare(
+      this.db.prepare(
         'INSERT INTO plans (name, cpu_limit, memory_limit, price_monthly, max_models, description) VALUES (?, ?, ?, ?, ?, ?)'
-      );
-      insert.run('basic', 1, 1024, 500, 3, 'Basic plan - 1 CPU, 1GB RAM');
-      insert.run('pro', 2, 2048, 1000, 10, 'Pro plan - 2 CPU, 2GB RAM');
-      insert.run('enterprise', 4, 4096, 2000, -1, 'Enterprise plan - 4 CPU, 4GB RAM, unlimited models');
+      ).run('unlimited', 4, 4096, 0, -1, 'Unlimited - 4 CPU, 4GB RAM, unlimited AI models, all channels, 24/7 uptime');
     }
   }
 
@@ -99,7 +96,7 @@ class PanelDatabase {
   // --- Users ---
   createUser(data) {
     const hash = bcrypt.hashSync(data.password, 10);
-    const plan = this.getPlanByName(data.plan || 'basic');
+    const plan = this.getPlanByName('unlimited');
     return this.db.prepare(`
       INSERT INTO users (username, email, password, project_name, service_name, domain, gateway_token, openclaw_url, status, plan, cpu_limit, memory_limit, expires_at, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
@@ -107,9 +104,9 @@ class PanelDatabase {
       data.username, data.email, hash,
       data.project_name, data.service_name || 'openclaw-gateway',
       data.domain, data.gateway_token, data.openclaw_url,
-      data.plan || 'basic',
-      plan?.cpu_limit || data.cpu_limit || 1,
-      plan?.memory_limit || data.memory_limit || 1024,
+      'unlimited',
+      plan?.cpu_limit || data.cpu_limit || 4,
+      plan?.memory_limit || data.memory_limit || 4096,
       data.expires_at || null,
       data.notes || null
     );

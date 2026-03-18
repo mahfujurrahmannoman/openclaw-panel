@@ -163,8 +163,8 @@ class EasypanelAPI {
     const domain = `${username}-openclaw.${baseDomain.replace(/^openclaw\./, '')}`;
     const gatewayToken = this.generateToken(64);
     const image = config.image || process.env.OPENCLAW_IMAGE || 'ghcr.io/openclaw/openclaw:2026.2.3';
-    const cpuLimit = config.cpuLimit || 1;
-    const memoryLimit = config.memoryLimit || 1024;
+    const cpuLimit = config.cpuLimit || 4;
+    const memoryLimit = config.memoryLimit || 4096;
 
     try {
       // 1. Create project
