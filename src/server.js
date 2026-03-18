@@ -376,6 +376,32 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
+// Helper: wire up exec stream to WebSocket
+function attachStream(ws, exec, stream, projectName) {
+  stream.on('data', (chunk) => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
+    }
+  });
+  stream.on('end', () => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended' }));
+      ws.close();
+    }
+  });
+  ws.on('message', (msg) => {
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed.type === 'input') stream.write(parsed.data);
+      else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
+        exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
+      }
+    } catch { stream.write(msg.toString()); }
+  });
+  ws.on('close', () => stream.end());
+  ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${projectName}` }));
+}
+
 wss.on('connection', async (ws, request) => {
   const user = db.getUserById(request.auth.id);
   if (!user || !user.project_name) {
@@ -384,81 +410,49 @@ wss.on('connection', async (ws, request) => {
     return;
   }
 
-  // Find the user's container by project name
-  const containerName = `${user.project_name}_${user.service_name}`;
+  // Easypanel uses Docker Swarm — container names are:
+  // {projectName}_{serviceName}.1.{randomhash}
+  const namePrefix = `${user.project_name}_${user.service_name}`;
   let container = null;
 
   try {
     const containers = await docker.listContainers({ all: false });
-    const match = containers.find(c =>
-      c.Names.some(n => n.includes(containerName)) ||
-      c.Labels?.['com.docker.stack.namespace'] === user.project_name
-    );
+    const match = containers.find(c => {
+      const names = (c.Names || []).map(n => n.replace(/^\//, ''));
+      if (names.some(n => n.startsWith(namePrefix))) return true;
+      if (c.Labels?.['com.docker.stack.namespace'] === user.project_name) return true;
+      if (c.Labels?.['com.docker.swarm.service.name'] === namePrefix) return true;
+      return false;
+    });
 
     if (!match) {
-      ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. Console requires the panel to run on the same server as Easypanel.` }));
+      ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying.` }));
       ws.close();
       return;
     }
-
     container = docker.getContainer(match.Id);
   } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', data: `Docker connection failed: ${err.message}. Ensure panel runs on the same server as Easypanel.` }));
+    ws.send(JSON.stringify({ type: 'error', data: `Docker connection failed: ${err.message}. Ensure the panel runs on the same server as Easypanel with Docker socket mounted.` }));
     ws.close();
     return;
   }
 
-  // Create exec session
-  try {
-    const exec = await container.exec({
-      Cmd: ['/bin/bash'],
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: true,
-      Env: ['TERM=xterm-256color'],
-    });
-
-    const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-
-    // Send container output to WebSocket client
-    stream.on('data', (chunk) => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
-      }
-    });
-
-    stream.on('end', () => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'exit', data: 'Session ended' }));
-        ws.close();
-      }
-    });
-
-    // Send WebSocket input to container
-    ws.on('message', (msg) => {
-      try {
-        const parsed = JSON.parse(msg);
-        if (parsed.type === 'input') {
-          stream.write(parsed.data);
-        } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-          exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
-        }
-      } catch {
-        stream.write(msg.toString());
-      }
-    });
-
-    ws.on('close', () => {
-      stream.end();
-    });
-
-    ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${user.project_name}` }));
-
-  } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', data: `Exec failed: ${err.message}` }));
-    ws.close();
+  // Try bash first, fall back to sh
+  for (const shell of ['/bin/bash', '/bin/sh']) {
+    try {
+      const exec = await container.exec({
+        Cmd: [shell],
+        AttachStdin: true, AttachStdout: true, AttachStderr: true,
+        Tty: true, Env: ['TERM=xterm-256color'],
+      });
+      const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
+      attachStream(ws, exec, stream, user.project_name);
+      return;
+    } catch (_) { continue; }
   }
+
+  ws.send(JSON.stringify({ type: 'error', data: 'No shell available in container' }));
+  ws.close();
 });
 
 // ==================== START ====================
