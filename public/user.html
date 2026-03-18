@@ -524,6 +524,12 @@ function ConsolePage({ addToast }) {
         } else if (msg.type === 'connected') {
           setStatus('connected');
           addToast(msg.data, 'success');
+          // Send terminal size immediately so PTY gets correct dimensions
+          if (xtermRef.current && fitRef.current) {
+            fitRef.current.fit();
+            const term = xtermRef.current;
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
         } else if (msg.type === 'error') {
           setStatus('disconnected');
           xtermRef.current?.write(`\r\n\x1b[31m${msg.data}\x1b[0m\r\n`);
