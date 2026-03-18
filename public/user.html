@@ -542,8 +542,13 @@ function ConsolePage({ addToast }) {
       }
     };
 
-    ws.onclose = () => { setStatus('disconnected'); };
-    ws.onerror = () => { setStatus('disconnected'); };
+    // Client-side ping every 15s to keep WebSocket alive through Traefik
+    const pingId = setInterval(() => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
+    }, 15000);
+
+    ws.onclose = () => { setStatus('disconnected'); clearInterval(pingId); };
+    ws.onerror = () => { setStatus('disconnected'); clearInterval(pingId); };
   }, []);
 
   useEffect(() => {

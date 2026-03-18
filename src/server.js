@@ -378,27 +378,58 @@ server.on('upgrade', (request, socket, head) => {
 
 // Helper: wire up exec stream to WebSocket
 function attachStream(ws, exec, stream, projectName) {
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended' }));
+      ws.close();
+    }
+    try { stream.destroy(); } catch (_) {}
+    clearInterval(pingInterval);
+  };
+
+  // Send container output to browser
   stream.on('data', (chunk) => {
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
     }
   });
-  stream.on('end', () => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended' }));
-      ws.close();
-    }
-  });
+
+  // Only close on stream 'close', not 'end' — 'end' can fire prematurely
+  stream.on('close', cleanup);
+  stream.on('error', cleanup);
+
+  // Receive input from browser
   ws.on('message', (msg) => {
+    if (closed) return;
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') stream.write(parsed.data);
       else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
+      } else if (parsed.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
       }
     } catch { stream.write(msg.toString()); }
   });
-  ws.on('close', () => stream.end());
+
+  ws.on('close', () => {
+    closed = true;
+    try { stream.destroy(); } catch (_) {}
+    clearInterval(pingInterval);
+  });
+
+  // Heartbeat every 20s to prevent Traefik/proxy from killing idle WebSocket
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'heartbeat' }));
+    } else {
+      clearInterval(pingInterval);
+    }
+  }, 20000);
+
   ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${projectName}` }));
 }
 
