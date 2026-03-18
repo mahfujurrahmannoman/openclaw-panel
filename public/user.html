@@ -365,15 +365,29 @@ function Dashboard({ addToast }) {
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="card">
-        <h3>Quick Actions</h3>
+      {/* OpenClaw Dashboard Access */}
+      <div className="card" style={{ borderColor: 'rgba(99,102,241,.3)', background: 'linear-gradient(135deg, #fafbfc 0%, #eef2ff 100%)' }}>
+        <h3>OpenClaw Dashboard</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
+          Access your OpenClaw Control UI directly. <strong>You must complete onboarding first</strong> (see Setup Guide tab).
+          After onboarding, the dashboard will be available at:
+        </p>
+        <div className="token-display" style={{ marginBottom: 12, fontSize: 12 }}>
+          <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}/?token={showToken ? profile.gateway_token : '••••••'}</span>
+          <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(`${profile.openclaw_url}/?token=${profile.gateway_token}`); addToast('Dashboard URL copied!', 'success'); }}>Copy</span>
+        </div>
         <div className="quick-actions">
-          <button className="btn btn-primary" onClick={handleRestart} disabled={restarting}>
+          <a href={`${profile.openclaw_url}/?token=${profile.gateway_token}`} target="_blank" rel="noopener" className="btn btn-primary">
+            Open Dashboard
+          </a>
+          <button className="btn btn-primary" onClick={handleRestart} disabled={restarting} style={{ background: '#16a34a', borderColor: '#16a34a' }}>
             {restarting ? 'Restarting...' : 'Restart Service'}
           </button>
-          <a href={profile.openclaw_url} target="_blank" rel="noopener" className="btn">Open OpenClaw Dashboard</a>
           <button className="btn" onClick={loadLogs}>View Logs</button>
+        </div>
+        <div className="tip-box" style={{ marginTop: 12 }}>
+          If the dashboard shows "Not Found" or "Service not reachable", you need to complete the onboarding wizard first.
+          Go to <strong>Console</strong> tab &rarr; Click Connect &rarr; Run: <code>node dist/index.js onboard --no-install-daemon</code>
         </div>
       </div>
 
@@ -542,13 +556,24 @@ function ConsolePage({ addToast }) {
       }
     };
 
-    // Client-side ping every 15s to keep WebSocket alive through Traefik
+    // Aggressive keep-alive: ping every 8s to prevent Traefik/proxy from killing WebSocket
     const pingId = setInterval(() => {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
-    }, 15000);
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } else {
+        clearInterval(pingId);
+      }
+    }, 8000);
 
-    ws.onclose = () => { setStatus('disconnected'); clearInterval(pingId); };
-    ws.onerror = () => { setStatus('disconnected'); clearInterval(pingId); };
+    ws.onclose = () => {
+      setStatus('disconnected');
+      clearInterval(pingId);
+      xtermRef.current?.write('\r\n\x1b[33m[Connection closed. Click "Connect" to reconnect.]\x1b[0m\r\n');
+    };
+    ws.onerror = () => {
+      setStatus('disconnected');
+      clearInterval(pingId);
+    };
   }, []);
 
   useEffect(() => {

@@ -379,56 +379,84 @@ server.on('upgrade', (request, socket, head) => {
 // Helper: wire up exec stream to WebSocket
 function attachStream(ws, exec, stream, projectName) {
   let closed = false;
+  let lastActivity = Date.now();
+  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour session timeout
+
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    clearInterval(heartbeatInterval);
+    clearInterval(activityCheckInterval);
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended' }));
+      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended.' }));
       ws.close();
     }
     try { stream.destroy(); } catch (_) {}
-    clearInterval(pingInterval);
   };
 
   // Send container output to browser
   stream.on('data', (chunk) => {
+    lastActivity = Date.now();
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
     }
   });
 
-  // Only close on stream 'close', not 'end' — 'end' can fire prematurely
+  // IMPORTANT: Do NOT listen for 'end' — it fires prematurely in Docker Swarm exec.
+  // Only close on 'close' event or explicit error.
   stream.on('close', cleanup);
-  stream.on('error', cleanup);
+  stream.on('error', (err) => {
+    if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // Ignore premature close
+    cleanup();
+  });
 
   // Receive input from browser
   ws.on('message', (msg) => {
     if (closed) return;
+    lastActivity = Date.now();
     try {
       const parsed = JSON.parse(msg);
-      if (parsed.type === 'input') stream.write(parsed.data);
-      else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
+      if (parsed.type === 'input') {
+        stream.write(parsed.data);
+      } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
       } else if (parsed.type === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong' }));
+        ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
     } catch { stream.write(msg.toString()); }
   });
 
   ws.on('close', () => {
     closed = true;
+    clearInterval(heartbeatInterval);
+    clearInterval(activityCheckInterval);
     try { stream.destroy(); } catch (_) {}
-    clearInterval(pingInterval);
   });
 
-  // Heartbeat every 20s to prevent Traefik/proxy from killing idle WebSocket
-  const pingInterval = setInterval(() => {
+  ws.on('error', () => {
+    cleanup();
+  });
+
+  // Heartbeat every 10s to keep connection alive through Traefik/proxy
+  const heartbeatInterval = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'heartbeat' }));
+      ws.send(JSON.stringify({ type: 'heartbeat', ts: Date.now() }));
+      // Also send a WebSocket ping frame for protocol-level keep-alive
+      try { ws.ping(); } catch (_) {}
     } else {
-      clearInterval(pingInterval);
+      clearInterval(heartbeatInterval);
     }
-  }, 20000);
+  }, 10000);
+
+  // Check session timeout (1 hour of no activity)
+  const activityCheckInterval = setInterval(() => {
+    if (Date.now() - lastActivity > SESSION_TIMEOUT) {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[33m[Session timed out after 1 hour of inactivity]\x1b[0m\r\n' }));
+      }
+      cleanup();
+    }
+  }, 60000);
 
   ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${projectName}` }));
 }

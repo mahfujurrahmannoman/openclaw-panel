@@ -179,7 +179,7 @@ class EasypanelAPI {
         ],
         deploy: {
           replicas: 1,
-          command: 'node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured',
+          command: 'node dist/index.js gateway --bind 0.0.0.0 --port 18789 --allow-unconfigured',
           zeroDowntime: true,
         },
       });
