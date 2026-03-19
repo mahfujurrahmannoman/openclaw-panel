@@ -1,7 +1,7 @@
 FROM node:22-alpine
 
-# Install build tools for better-sqlite3 native module
-RUN apk add --no-cache python3 make g++ git
+# Install build tools for better-sqlite3 native module + Docker CLI for exec
+RUN apk add --no-cache python3 make g++ git docker-cli
 
 WORKDIR /app
 
