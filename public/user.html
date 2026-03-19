@@ -135,6 +135,18 @@
     .stat-box .num { font-size: 22px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
     .stat-box .lbl { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
+    /* Dashboard Grid */
+    .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .dash-full { grid-column: 1 / -1; }
+    .health-banner { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-radius: 12px; margin-bottom: 16px; }
+    .health-banner.healthy { background: linear-gradient(135deg, #dcfce7, #f0fdf4); border: 1px solid #bbf7d0; }
+    .health-banner.degraded { background: linear-gradient(135deg, #fef3c7, #fffbeb); border: 1px solid #fde68a; }
+    .health-banner.down { background: linear-gradient(135deg, #fef2f2, #fff1f1); border: 1px solid #fecaca; }
+    .health-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .gauge-row { display: flex; gap: 32px; justify-content: center; padding: 16px 0; }
+    .net-stat-row { display: flex; gap: 12px; margin-top: 8px; }
+    .net-stat-item { flex: 1; display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #f4f4f5; border-radius: 8px; }
+
     /* Responsive */
     @media (max-width: 640px) {
       .container { padding: 16px 12px; }
@@ -144,6 +156,8 @@
       .stat-row { grid-template-columns: repeat(2, 1fr); }
       .nav-tabs { padding: 0 8px; }
       .nav-tab { padding: 10px 12px; font-size: 12px; }
+      .dash-grid { grid-template-columns: 1fr; }
+      .gauge-row { flex-direction: column; align-items: center; }
     }
   </style>
 </head>
@@ -235,6 +249,89 @@ function LoginPage({ onLogin, addToast }) {
   );
 }
 
+// ===== formatBytes =====
+function formatBytes(bytes) {
+  if (bytes == null || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const idx = Math.min(i, units.length - 1);
+  return (bytes / Math.pow(1024, idx)).toFixed(1) + ' ' + units[idx];
+}
+
+// ===== RadialGauge =====
+function RadialGauge({ value, max, sublabel }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  const r = 38;
+  const strokeWidth = 7;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct < 50 ? '#16a34a' : pct < 80 ? '#d97706' : '#dc2626';
+
+  return (
+    <div style={{ textAlign: 'center', width: 130 }}>
+      <svg viewBox="0 0 100 100" width="120" height="120">
+        <circle cx="50" cy="50" r={r} fill="none" stroke="#e4e4e7" strokeWidth={strokeWidth} />
+        <circle
+          cx="50" cy="50" r={r} fill="none"
+          stroke={color} strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          transform="rotate(-90 50 50)"
+          style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+        />
+        <text x="50" y="48" textAnchor="middle" dominantBaseline="middle"
+          style={{ fontSize: '16px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", fill: '#18181b' }}>
+          {pct.toFixed(1)}%
+        </text>
+        {sublabel && (
+          <text x="50" y="62" textAnchor="middle" dominantBaseline="middle"
+            style={{ fontSize: '8px', fill: '#71717a', fontFamily: "'IBM Plex Sans', sans-serif" }}>
+            {sublabel}
+          </text>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// ===== HealthBanner =====
+function HealthBanner({ task, status }) {
+  let cls, icon, iconBg, text;
+
+  if (status === 'suspended') {
+    cls = 'down';
+    icon = '\u26D4';
+    iconBg = '#fecaca';
+    text = 'Account Suspended - Contact admin';
+  } else if (task && task.actual >= task.desired) {
+    cls = 'healthy';
+    icon = '\u2714';
+    iconBg = '#bbf7d0';
+    text = 'Service Running';
+  } else if (task && task.actual > 0 && task.actual < task.desired) {
+    cls = 'degraded';
+    icon = '\u26A0';
+    iconBg = '#fde68a';
+    text = 'Service Degraded';
+  } else {
+    cls = 'down';
+    icon = '\u2716';
+    iconBg = '#fecaca';
+    text = 'Service Stopped - Try restarting';
+  }
+
+  return (
+    <div className={`health-banner ${cls}`}>
+      <div className="health-icon" style={{ background: iconBg }}>{icon}</div>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{text}</div>
+        {task && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>Replicas: {task.actual ?? 0} / {task.desired ?? 0}</div>}
+      </div>
+    </div>
+  );
+}
+
 // ===== Dashboard =====
 function Dashboard({ addToast }) {
   const [profile, setProfile] = useState(null);
@@ -244,6 +341,7 @@ function Dashboard({ addToast }) {
   const [showPairToken, setShowPairToken] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   // Telegram form
   const [tgBot, setTgBot] = useState('');
@@ -264,9 +362,14 @@ function Dashboard({ addToast }) {
       setApiProvider(p.api_key_provider || 'deepseek');
     } catch (err) { addToast(err.message, 'error'); }
     try { setStats(await api.get('/api/user/stats')); } catch (_) {}
+    setLastUpdated(new Date());
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const handleRestart = async () => {
     setRestarting(true);
@@ -307,155 +410,200 @@ function Dashboard({ addToast }) {
 
   if (!profile) return <div className="container" style={{ color: 'var(--text-dim)', paddingTop: 48 }}>Loading...</div>;
 
-  // Parse stats
-  const containerStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
-  const cpuPct = containerStat?.cpuPercent ?? containerStat?.cpu ?? 0;
-  const memUsed = containerStat?.memoryUsage || '0 MB';
-  const memPct = containerStat?.memoryPercent ?? containerStat?.memPercent ?? 0;
+  // Parse new stats format: { containers, task }
+  const containers = stats && stats.containers ? stats.containers : [];
+  const containerStat = containers.length > 0 ? containers[0] : null;
+  const task = stats && stats.task ? stats.task : null;
+
+  const cpuPct = containerStat?.stats?.cpu?.percent ?? 0;
+  const memPct = containerStat?.stats?.memory?.percent ?? 0;
+  const memUsage = containerStat?.stats?.memory?.usage ?? 0;
+  const netIn = containerStat?.networkInput ?? 0;
+  const netOut = containerStat?.networkOutput ?? 0;
 
   return (
     <div className="container">
       {/* Welcome */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 600 }}>Hello, {profile.username}</h2>
-        <span className={`badge badge-${profile.status}`}>{profile.status}</span>
-        <span className="badge" style={{ marginLeft: 6, background: '#f3e8ff', color: '#7c3aed' }}>unlimited</span>
-      </div>
-
-      {/* Service Info */}
-      <div className="card">
-        <h3>Service Info</h3>
-        <div className="info-row">
-          <span className="info-label">OpenClaw URL</span>
-          <a href={profile.openclaw_url} target="_blank" rel="noopener" className="info-value mono">{profile.openclaw_url}</a>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Domain</span>
-          <span className="info-value mono">{profile.domain}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Gateway Token</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="info-value mono" style={{ fontSize: 11 }}>
-              {showToken ? profile.gateway_token : '••••••••••••••••'}
-            </span>
-            <span className="token-toggle" onClick={() => setShowToken(!showToken)}>
-              {showToken ? 'Hide' : 'Show'}
-            </span>
-          </div>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Plan</span>
-          <span className="info-value" style={{ color: '#7c3aed', fontWeight: 600 }}>Unlimited (4 CPU / 4GB RAM / All Models)</span>
-        </div>
-        <div className="info-row">
-          <span className="info-label">Expires</span>
-          <span className="info-value">{profile.expires_at ? new Date(profile.expires_at).toLocaleDateString() : 'Never'}</span>
-        </div>
-      </div>
-
-      {/* Resource Usage */}
-      <div className="card">
-        <h3>Resource Usage</h3>
-        <div style={{ marginBottom: 12 }}>
-          <Meter value={cpuPct} max={100} label={`CPU (${cpuPct.toFixed(1)}%)`} />
-        </div>
+      <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <Meter value={memPct} max={100} label={`RAM ${memUsed} / ${profile.memory_limit}MB`} />
-        </div>
-      </div>
-
-      {/* OpenClaw Dashboard Access */}
-      <div className="card" style={{ borderColor: 'rgba(99,102,241,.3)', background: 'linear-gradient(135deg, #fafbfc 0%, #eef2ff 100%)' }}>
-        <h3>OpenClaw Dashboard</h3>
-        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
-          Access your OpenClaw Control UI directly. <strong>You must complete onboarding first</strong> (see Setup Guide tab).
-          After onboarding, the dashboard will be available at:
-        </p>
-        <div className="token-display" style={{ marginBottom: 12, fontSize: 12 }}>
-          <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}/?token={showToken ? profile.gateway_token : '••••••'}</span>
-          <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(`${profile.openclaw_url}/?token=${profile.gateway_token}`); addToast('Dashboard URL copied!', 'success'); }}>Copy</span>
-        </div>
-        <div className="quick-actions">
-          <a href={`${profile.openclaw_url}/?token=${profile.gateway_token}`} target="_blank" rel="noopener" className="btn btn-primary">
-            Open Dashboard
-          </a>
-          <button className="btn btn-primary" onClick={handleRestart} disabled={restarting} style={{ background: '#16a34a', borderColor: '#16a34a' }}>
-            {restarting ? 'Restarting...' : 'Restart Service'}
-          </button>
-          <button className="btn" onClick={loadLogs}>View Logs</button>
-        </div>
-        <div className="tip-box" style={{ marginTop: 12 }}>
-          If the dashboard shows "Not Found" or "Service not reachable", you need to complete the onboarding wizard first.
-          Go to <strong>Console</strong> tab &rarr; Click Connect &rarr; Run: <code>node dist/index.js onboard --no-install-daemon</code>
-        </div>
-      </div>
-
-      {/* Pairing / Connection Guide */}
-      <div className="card">
-        <h3>Pairing / Connect Your Client</h3>
-        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 14, lineHeight: 1.6 }}>
-          Use the details below to connect your OpenClaw client (CLI, VS Code, or any compatible app) to your hosted instance.
-        </p>
-
-        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 1: Open your OpenClaw client settings</div>
-          <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-            In your OpenClaw desktop app or CLI, go to <strong>Settings &rarr; Remote Gateway</strong> or use the command <code style={{ background: '#e4e4e7', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>openclaw gateway connect</code>
+          <h2 style={{ fontSize: 22, fontWeight: 600 }}>Hello, {profile.username}</h2>
+          <div style={{ marginTop: 4 }}>
+            <span className={`badge badge-${profile.status}`}>{profile.status}</span>
+            <span className="badge" style={{ marginLeft: 6, background: '#f3e8ff', color: '#7c3aed' }}>unlimited</span>
           </div>
         </div>
-
-        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 2: Enter your Gateway URL</div>
-          <div className="token-display" style={{ marginBottom: 4 }}>
-            <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}</span>
-            <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.openclaw_url); addToast('URL copied!', 'success'); }}>Copy</span>
+        {lastUpdated && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Last updated: {lastUpdated.toLocaleTimeString()}
           </div>
-        </div>
-
-        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 3: Enter your Gateway Token</div>
-          <div className="token-display" style={{ marginBottom: 4 }}>
-            <span style={{ flex: 1, wordBreak: 'break-all' }}>{showPairToken ? profile.gateway_token : '••••••••••••••••••••••••••••••••'}</span>
-            <span className="token-toggle" onClick={() => setShowPairToken(!showPairToken)}>{showPairToken ? 'Hide' : 'Show'}</span>
-            <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.gateway_token); addToast('Token copied!', 'success'); }}>Copy</span>
-          </div>
-        </div>
-
-        <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 4: Click "Connect" or "Pair"</div>
-          <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-            Your client will verify the connection. Once paired, all your AI requests will be routed through your hosted OpenClaw instance.
-          </div>
-        </div>
-
-        <div style={{ marginTop: 14, padding: 12, background: '#eef2ff', borderRadius: 8, border: '1px solid rgba(99,102,241,.2)' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Quick Pair via CLI</div>
-          <div className="token-display" style={{ background: '#18181b', color: '#a1a1aa', fontSize: 11 }}>
-            <span style={{ flex: 1 }}>openclaw gateway connect --url {profile.openclaw_url} --token {showPairToken ? profile.gateway_token : '&lt;your-token&gt;'}</span>
-            <span className="token-toggle" style={{ color: '#818cf8' }} onClick={() => { navigator.clipboard.writeText(`openclaw gateway connect --url ${profile.openclaw_url} --token ${profile.gateway_token}`); addToast('Command copied!', 'success'); }}>Copy</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Logs (expandable) */}
-      {showLogs && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ marginBottom: 0 }}>Service Logs</h3>
-            <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setShowLogs(false)}>Close</button>
-          </div>
-          <div className="logs-box" style={{ marginTop: 12 }}>{logs || 'No logs available.'}</div>
-        </div>
-      )}
-
-      {/* Telegram Setup */}
-      <div className="card">
-        <h3>Telegram Integration</h3>
-        {profile.telegram_bot_token && (
-          <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>Connected</div>
         )}
-        <div className="form-row">
+      </div>
+
+      {/* Health Banner */}
+      <HealthBanner task={task} status={profile.status} />
+
+      {/* Grid: Service Info + Resource Gauges */}
+      <div className="dash-grid">
+        {/* Service Info Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>Service Info</h3>
+          <div className="info-row">
+            <span className="info-label">OpenClaw URL</span>
+            <a href={profile.openclaw_url} target="_blank" rel="noopener" className="info-value mono">{profile.openclaw_url}</a>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Domain</span>
+            <span className="info-value mono">{profile.domain}</span>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Gateway Token</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="info-value mono" style={{ fontSize: 11 }}>
+                {showToken ? profile.gateway_token : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
+              </span>
+              <span className="token-toggle" onClick={() => setShowToken(!showToken)}>
+                {showToken ? 'Hide' : 'Show'}
+              </span>
+            </div>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Plan</span>
+            <span className="info-value" style={{ color: '#7c3aed', fontWeight: 600 }}>Unlimited</span>
+          </div>
+          <div className="info-row">
+            <span className="info-label">Expires</span>
+            <span className="info-value">{profile.expires_at ? new Date(profile.expires_at).toLocaleDateString() : 'Never'}</span>
+          </div>
+        </div>
+
+        {/* Resource Gauges Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>Resource Usage</h3>
+          <div className="gauge-row">
+            <RadialGauge value={cpuPct} max={100} sublabel="CPU" />
+            <RadialGauge value={memPct} max={100} sublabel={formatBytes(memUsage)} />
+          </div>
+        </div>
+
+        {/* Network Usage Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>Network Usage</h3>
+          <div className="net-stat-row">
+            <div className="net-stat-item">
+              <span style={{ fontSize: 18 }}>{'\u2B07'}</span>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Inbound</div>
+                <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{formatBytes(netIn)}</div>
+              </div>
+            </div>
+            <div className="net-stat-item">
+              <span style={{ fontSize: 18 }}>{'\u2B06'}</span>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Outbound</div>
+                <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{formatBytes(netOut)}</div>
+              </div>
+            </div>
+          </div>
+          {containerStat && (
+            <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+              Container: {containerStat.projectName}/{containerStat.serviceName}
+            </div>
+          )}
+        </div>
+
+        {/* Quick Actions Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>Quick Actions</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button className="btn btn-primary" onClick={handleRestart} disabled={restarting} style={{ background: '#16a34a', borderColor: '#16a34a', justifyContent: 'center' }}>
+              {restarting ? 'Restarting...' : 'Restart Service'}
+            </button>
+            <a href={`${profile.openclaw_url}/?token=${profile.gateway_token}`} target="_blank" rel="noopener" className="btn btn-primary" style={{ justifyContent: 'center', textDecoration: 'none' }}>
+              Open Dashboard
+            </a>
+            <button className="btn" onClick={loadLogs} style={{ justifyContent: 'center' }}>View Logs</button>
+          </div>
+        </div>
+
+        {/* OpenClaw Dashboard Card — full width */}
+        <div className="dash-full card" style={{ marginBottom: 0, borderColor: 'rgba(99,102,241,.3)', background: 'linear-gradient(135deg, #fafbfc 0%, #eef2ff 100%)' }}>
+          <h3>OpenClaw Dashboard</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
+            Access your OpenClaw Control UI directly. <strong>You must complete onboarding first</strong> (see Setup Guide tab).
+            After onboarding, the dashboard will be available at:
+          </p>
+          <div className="token-display" style={{ marginBottom: 12, fontSize: 12 }}>
+            <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}/?token={showToken ? profile.gateway_token : '\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+            <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(`${profile.openclaw_url}/?token=${profile.gateway_token}`); addToast('Dashboard URL copied!', 'success'); }}>Copy</span>
+          </div>
+          <div className="quick-actions">
+            <a href={`${profile.openclaw_url}/?token=${profile.gateway_token}`} target="_blank" rel="noopener" className="btn btn-primary">
+              Open Dashboard
+            </a>
+            <button className="btn btn-primary" onClick={handleRestart} disabled={restarting} style={{ background: '#16a34a', borderColor: '#16a34a' }}>
+              {restarting ? 'Restarting...' : 'Restart Service'}
+            </button>
+            <button className="btn" onClick={loadLogs}>View Logs</button>
+          </div>
+          <div className="tip-box" style={{ marginTop: 12 }}>
+            If the dashboard shows "Not Found" or "Service not reachable", you need to complete the onboarding wizard first.
+            Go to <strong>Console</strong> tab &rarr; Click Connect &rarr; Run: <code>node dist/index.js onboard --no-install-daemon</code>
+          </div>
+        </div>
+
+        {/* Pairing Card — full width */}
+        <div className="dash-full card" style={{ marginBottom: 0 }}>
+          <h3>Pairing / Connect Your Client</h3>
+          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 14, lineHeight: 1.6 }}>
+            Use the details below to connect your OpenClaw client (CLI, VS Code, or any compatible app) to your hosted instance.
+          </p>
+
+          <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 1: Open your OpenClaw client settings</div>
+            <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+              In your OpenClaw desktop app or CLI, go to <strong>Settings &rarr; Remote Gateway</strong> or use the command <code style={{ background: '#e4e4e7', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>openclaw gateway connect</code>
+            </div>
+          </div>
+
+          <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 2: Enter your Gateway URL</div>
+            <div className="token-display" style={{ marginBottom: 4 }}>
+              <span style={{ flex: 1, wordBreak: 'break-all' }}>{profile.openclaw_url}</span>
+              <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.openclaw_url); addToast('URL copied!', 'success'); }}>Copy</span>
+            </div>
+          </div>
+
+          <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 3: Enter your Gateway Token</div>
+            <div className="token-display" style={{ marginBottom: 4 }}>
+              <span style={{ flex: 1, wordBreak: 'break-all' }}>{showPairToken ? profile.gateway_token : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+              <span className="token-toggle" onClick={() => setShowPairToken(!showPairToken)}>{showPairToken ? 'Hide' : 'Show'}</span>
+              <span className="token-toggle" onClick={() => { navigator.clipboard.writeText(profile.gateway_token); addToast('Token copied!', 'success'); }}>Copy</span>
+            </div>
+          </div>
+
+          <div style={{ background: '#f4f4f5', borderRadius: 8, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Step 4: Click "Connect" or "Pair"</div>
+            <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+              Your client will verify the connection. Once paired, all your AI requests will be routed through your hosted OpenClaw instance.
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14, padding: 12, background: '#eef2ff', borderRadius: 8, border: '1px solid rgba(99,102,241,.2)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Quick Pair via CLI</div>
+            <div className="token-display" style={{ background: '#18181b', color: '#a1a1aa', fontSize: 11 }}>
+              <span style={{ flex: 1 }}>openclaw gateway connect --url {profile.openclaw_url} --token {showPairToken ? profile.gateway_token : '<your-token>'}</span>
+              <span className="token-toggle" style={{ color: '#818cf8' }} onClick={() => { navigator.clipboard.writeText(`openclaw gateway connect --url ${profile.openclaw_url} --token ${profile.gateway_token}`); addToast('Command copied!', 'success'); }}>Copy</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Telegram Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>Telegram Integration</h3>
+          {profile.telegram_bot_token && (
+            <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>Connected</div>
+          )}
           <div className="form-group">
             <label>Bot Token</label>
             <input value={tgBot} onChange={e => setTgBot(e.target.value)} placeholder="123456:ABC-DEF..." />
@@ -464,21 +612,19 @@ function Dashboard({ addToast }) {
             <label>Chat ID</label>
             <input value={tgChat} onChange={e => setTgChat(e.target.value)} placeholder="123456789" />
           </div>
+          <button className="btn btn-primary" onClick={handleTelegram} disabled={tgSaving}>
+            {tgSaving ? 'Saving...' : 'Save Telegram Settings'}
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={handleTelegram} disabled={tgSaving}>
-          {tgSaving ? 'Saving...' : 'Save Telegram Settings'}
-        </button>
-      </div>
 
-      {/* API Key Setup */}
-      <div className="card">
-        <h3>AI API Key</h3>
-        {profile.api_key_provider && (
-          <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>
-            Current: {profile.api_key_provider}
-          </div>
-        )}
-        <div className="form-row">
+        {/* API Key Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>AI API Key</h3>
+          {profile.api_key_provider && (
+            <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 10 }}>
+              Current: {profile.api_key_provider}
+            </div>
+          )}
           <div className="form-group">
             <label>Provider</label>
             <select value={apiProvider} onChange={e => setApiProvider(e.target.value)}>
@@ -492,11 +638,22 @@ function Dashboard({ addToast }) {
             <label>API Key</label>
             <input type="password" value={apiKeyVal} onChange={e => setApiKeyVal(e.target.value)} placeholder="sk-..." />
           </div>
+          <button className="btn btn-primary" onClick={handleApiKey} disabled={apiSaving}>
+            {apiSaving ? 'Saving...' : 'Save API Key'}
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={handleApiKey} disabled={apiSaving}>
-          {apiSaving ? 'Saving...' : 'Save API Key'}
-        </button>
       </div>
+
+      {/* Logs (expandable) */}
+      {showLogs && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ marginBottom: 0 }}>Service Logs</h3>
+            <button className="btn" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setShowLogs(false)}>Close</button>
+          </div>
+          <div className="logs-box" style={{ marginTop: 12 }}>{logs || 'No logs available.'}</div>
+        </div>
+      )}
     </div>
   );
 }

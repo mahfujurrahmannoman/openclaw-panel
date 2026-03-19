@@ -78,6 +78,26 @@ app.get('/api/admin/dashboard', verifyToken, adminOnly, async (req, res) => {
   }
 });
 
+// Live dashboard — aggregates all monitoring data in one call
+app.get('/api/admin/dashboard/live', verifyToken, adminOnly, async (req, res) => {
+  try {
+    const [system, containers, tasks] = await Promise.allSettled([
+      easypanel.getSystemStats(),
+      easypanel.getMonitorTableData(),
+      easypanel.getDockerTaskStats(),
+    ]);
+    res.json({
+      system: system.status === 'fulfilled' ? system.value : null,
+      containers: containers.status === 'fulfilled' ? containers.value : [],
+      tasks: tasks.status === 'fulfilled' ? tasks.value : {},
+      dbStats: db.getDashboardStats(),
+      users: db.getAllUsers(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/users', verifyToken, adminOnly, (req, res) => {
   res.json(db.getAllUsers());
 });
@@ -225,6 +245,31 @@ app.get('/api/admin/server/stats', verifyToken, adminOnly, async (req, res) => {
   }
 });
 
+// Server actions (prune, restart)
+app.post('/api/admin/server/action', verifyToken, adminOnly, async (req, res) => {
+  const { action } = req.body;
+  try {
+    let result;
+    switch (action) {
+      case 'prune_images':
+        result = await easypanel.post('settings.pruneDockerImages', {});
+        break;
+      case 'prune_builder':
+        result = await easypanel.post('settings.pruneDockerBuilder', {});
+        break;
+      case 'restart_traefik':
+        result = await easypanel.post('settings.restartTraefik', {});
+        break;
+      default:
+        return res.status(400).json({ error: 'Unknown action' });
+    }
+    db.logActivity(null, `server_${action}`, `Admin executed ${action}`);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/plans', verifyToken, adminOnly, (req, res) => {
   res.json(db.getAllPlans());
 });
@@ -245,8 +290,15 @@ app.get('/api/user/stats', verifyToken, userOnly, async (req, res) => {
   const user = db.getUserById(req.auth.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
-    const stats = await easypanel.getUserStats(user.project_name);
-    res.json(stats || []);
+    const [containersRes, tasksRes] = await Promise.allSettled([
+      easypanel.getUserStats(user.project_name),
+      easypanel.getDockerTaskStats(),
+    ]);
+    const containers = containersRes.status === 'fulfilled' ? containersRes.value : [];
+    const allTasks = tasksRes.status === 'fulfilled' ? tasksRes.value : {};
+    const swarmName = `${user.project_name}_${user.service_name || 'openclaw-gateway'}`;
+    const task = allTasks?.[swarmName] || null;
+    res.json({ containers: containers || [], task });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

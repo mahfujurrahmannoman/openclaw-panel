@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RarHost - OpenClaw Admin Panel</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -22,80 +22,130 @@
     a { color: var(--accent); text-decoration: none; }
     a:hover { color: var(--accent-hover); }
 
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
     /* Layout */
     .layout { display: flex; min-height: 100vh; }
     .sidebar { width: 240px; background: var(--card); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
     .sidebar-logo { padding: 24px 20px; border-bottom: 1px solid var(--border); }
-    .sidebar-logo h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
-    .sidebar-logo p { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .sidebar-logo h1 { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    .sidebar-logo p { font-size: 11px; color: var(--text-dim); margin-top: 2px; letter-spacing: 0.3px; }
     .sidebar-nav { flex: 1; padding: 12px 8px; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; color: var(--text-dim); font-size: 14px; font-weight: 500; transition: all .15s; margin-bottom: 2px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; color: var(--text-dim); font-size: 14px; font-weight: 500; transition: all .15s; margin-bottom: 2px; user-select: none; }
     .nav-item:hover { background: rgba(99,102,241,.1); color: var(--text); }
     .nav-item.active { background: rgba(99,102,241,.15); color: var(--accent); }
     .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
     .sidebar-footer { padding: 12px 8px; border-top: 1px solid var(--border); }
-    .main { margin-left: 240px; flex: 1; padding: 24px 32px; min-height: 100vh; }
-    .page-title { font-size: 22px; font-weight: 600; margin-bottom: 24px; }
+    .main { margin-left: 240px; flex: 1; padding: 28px 36px; min-height: 100vh; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-title { font-size: 22px; font-weight: 600; }
+    .page-subtitle { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 
     /* Cards */
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
-    .stat-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
-    .stat-card .value { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .card-title { font-size: 13px; color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; transition: border-color .2s; }
+    .stat-card:hover { border-color: var(--text-muted); }
+    .stat-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .stat-card .value { font-size: 32px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; }
+    .stat-card .sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+
+    /* Gauge Grid */
+    .gauge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .gauge-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; transition: border-color .2s; }
+    .gauge-card:hover { border-color: var(--text-muted); }
+    .gauge-label { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-top: 12px; }
+    .gauge-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+
+    /* Network Cards */
+    .net-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
+    .net-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 16px; }
+    .net-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .net-icon svg { width: 24px; height: 24px; }
+    .net-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+    .net-value { font-size: 24px; font-weight: 600; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+
+    /* Action buttons row */
+    .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .action-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: 12px; user-select: none; }
+    .action-card:hover { border-color: var(--accent); background: var(--card-hover); }
+    .action-card.loading { opacity: .7; pointer-events: none; }
+    .action-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(99,102,241,.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .action-icon svg { width: 20px; height: 20px; color: var(--accent); }
+    .action-title { font-size: 14px; font-weight: 600; }
+    .action-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
     /* Table */
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+    th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.2); }
     td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     tr:hover td { background: var(--card-hover); }
 
     /* Badges */
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-    .badge-active { background: rgba(34,197,94,.15); color: var(--success); }
-    .badge-suspended { background: rgba(239,68,68,.15); color: var(--danger); }
-    .badge-basic { background: rgba(99,102,241,.15); color: var(--accent); }
-    .badge-pro { background: rgba(245,158,11,.15); color: var(--warning); }
-    .badge-enterprise { background: rgba(168,85,247,.15); color: #a855f7; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: rgba(34,197,94,.12); color: var(--success); }
+    .badge-suspended { background: rgba(239,68,68,.12); color: var(--danger); }
+    .badge-basic { background: rgba(99,102,241,.12); color: var(--accent); }
+    .badge-pro { background: rgba(245,158,11,.12); color: var(--warning); }
+    .badge-enterprise { background: rgba(168,85,247,.12); color: #a855f7; }
+
+    /* Health dot */
+    .health-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+    .health-dot .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .health-dot .dot.running { background: var(--success); box-shadow: 0 0 6px rgba(34,197,94,.5); }
+    .health-dot .dot.stopped { background: var(--danger); box-shadow: 0 0 6px rgba(239,68,68,.4); }
+    .health-dot .dot.degraded { background: var(--warning); box-shadow: 0 0 6px rgba(245,158,11,.4); }
+    .health-dot .dot.unknown { background: var(--text-muted); }
 
     /* Buttons */
-    .btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+    .btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .btn:hover { background: var(--card-hover); border-color: var(--text-muted); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
     .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     .btn-primary:hover { background: var(--accent-hover); }
-    .btn-danger { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.3); color: var(--danger); }
-    .btn-danger:hover { background: rgba(239,68,68,.25); }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .btn-group { display: flex; gap: 6px; }
+    .btn-danger { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); color: var(--danger); }
+    .btn-danger:hover { background: rgba(239,68,68,.22); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
-    /* Meter */
-    .meter { height: 8px; background: #1e1e2e; border-radius: 99px; overflow: hidden; }
-    .meter-fill { height: 100%; border-radius: 99px; transition: width .5s; }
+    /* Inline meter */
+    .meter { height: 6px; background: #1e1e2e; border-radius: 99px; overflow: hidden; min-width: 60px; }
+    .meter-fill { height: 100%; border-radius: 99px; transition: width .6s ease; }
     .meter-green { background: var(--success); }
     .meter-amber { background: var(--warning); }
     .meter-red { background: var(--danger); }
 
+    /* Inline resource bar */
+    .res-bar { display: flex; align-items: center; gap: 8px; }
+    .res-bar .meter { flex: 1; height: 6px; }
+    .res-bar .res-pct { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-dim); min-width: 40px; text-align: right; }
+
     /* Modal */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
-    .modal h2 { font-size: 18px; margin-bottom: 16px; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+    .modal h2 { font-size: 18px; margin-bottom: 20px; }
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; }
-    .form-group input, .form-group select { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
+    .form-group input, .form-group select { width: 100%; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; outline: none; transition: border-color .2s; }
     .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
-    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
     /* Toast */
     .toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
-    .toast { padding: 12px 16px; border-radius: 8px; font-size: 13px; animation: slideIn .3s; max-width: 360px; }
-    .toast-success { background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.3); color: var(--success); }
-    .toast-error { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.3); color: var(--danger); }
+    .toast { padding: 12px 16px; border-radius: 10px; font-size: 13px; animation: slideIn .3s; max-width: 380px; backdrop-filter: blur(12px); }
+    .toast-success { background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.25); color: var(--success); }
+    .toast-error { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.25); color: var(--danger); }
     @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 
     /* Deploy Steps */
     .deploy-steps { list-style: none; padding: 0; }
-    .deploy-steps li { padding: 6px 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .deploy-steps li { padding: 8px 0; font-size: 13px; display: flex; align-items: center; gap: 10px; }
     .deploy-steps .done { color: var(--success); }
     .deploy-steps .pending { color: var(--text-muted); }
     .deploy-steps .active { color: var(--accent); }
@@ -104,16 +154,79 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Login */
-    .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .login-box { width: 380px; }
-    .login-box h1 { font-size: 24px; text-align: center; margin-bottom: 4px; color: var(--accent); }
-    .login-box p { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+    .login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 0%, rgba(99,102,241,.08) 0%, transparent 60%); }
+    .login-box { width: 400px; }
+    .login-box h1 { font-size: 28px; text-align: center; margin-bottom: 4px; color: var(--accent); letter-spacing: -0.5px; }
+    .login-box p { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 28px; }
+
+    /* Section spacing */
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+
+    /* Pulse animation for live dot */
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; animation: pulse 2s ease infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+    /* Updated at timestamp */
+    .updated-at { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+      .stat-grid { grid-template-columns: repeat(2, 1fr); }
+      .gauge-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { margin-left: 0; padding: 16px; }
+      .stat-grid { grid-template-columns: 1fr 1fr; }
+      .gauge-grid { grid-template-columns: 1fr; }
+      .net-grid { grid-template-columns: 1fr; }
+      .action-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+// ===== Utilities =====
+function formatBytes(bytes) {
+  if (bytes == null || isNaN(bytes)) return '0 B';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
+  const idx = Math.min(i, sizes.length - 1);
+  return parseFloat((bytes / Math.pow(k, idx)).toFixed(2)) + ' ' + sizes[idx];
+}
+
+function formatBytesShort(bytes) {
+  if (bytes == null || isNaN(bytes)) return '0';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(k)), sizes.length - 1);
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function gaugeColor(pct) {
+  if (pct < 50) return 'var(--success)';
+  if (pct < 80) return 'var(--warning)';
+  return 'var(--danger)';
+}
+
+function meterClass(pct) {
+  if (pct < 50) return 'meter-green';
+  if (pct < 80) return 'meter-amber';
+  return 'meter-red';
+}
+
+function timeAgo(seconds) {
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+  return `${Math.floor(seconds / 60)}m ago`;
+}
 
 // ===== API Helper =====
 const api = {
@@ -144,23 +257,101 @@ function ToastContainer({ toasts }) {
 
 // ===== Icons =====
 const Icons = {
-  dashboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
-  users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
-  activity: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
-  logout: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
-  check: '✓',
+  dashboard: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  activity: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  logout: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  download: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M20 21H4"/></svg>,
+  upload: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 14 12 9 7 14"/><line x1="12" y1="9" x2="12" y2="21"/><path d="M20 3H4"/></svg>,
+  prune: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>,
+  refresh: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>,
+  server: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>,
 };
+
+// ===== Radial Gauge Component =====
+function RadialGauge({ value, max = 100, label, sublabel }) {
+  const pct = Math.min(Math.max((value || 0) / max * 100, 0), 100);
+  const color = gaugeColor(pct);
+  const radius = 58;
+  const stroke = 8;
+  const circumference = 2 * Math.PI * radius;
+  const dashoffset = circumference - (pct / 100) * circumference;
+  const size = 150;
+  const center = size / 2;
+
+  return (
+    <div className="gauge-card">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {/* Background circle */}
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="#1e1e2e" strokeWidth={stroke} />
+        {/* Gauge arc */}
+        <circle
+          cx={center} cy={center} r={radius}
+          fill="none" stroke={color} strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashoffset}
+          transform={`rotate(-90 ${center} ${center})`}
+          style={{ transition: 'stroke-dashoffset 0.8s ease, stroke 0.4s ease' }}
+        />
+        {/* Center text */}
+        <text x={center} y={center - 4} textAnchor="middle" fill={color} fontSize="26" fontWeight="600" fontFamily="'JetBrains Mono', monospace">
+          {pct.toFixed(1)}%
+        </text>
+        <text x={center} y={center + 16} textAnchor="middle" fill="#71717a" fontSize="11" fontFamily="'IBM Plex Sans', sans-serif">
+          {label}
+        </text>
+      </svg>
+      {sublabel && <div className="gauge-sub">{sublabel}</div>}
+    </div>
+  );
+}
+
+// ===== Health Dot Component =====
+function HealthDot({ status }) {
+  const map = {
+    running: { cls: 'running', text: 'Running' },
+    stopped: { cls: 'stopped', text: 'Stopped' },
+    degraded: { cls: 'degraded', text: 'Degraded' },
+    unknown: { cls: 'unknown', text: 'Unknown' },
+  };
+  const info = map[status] || map.unknown;
+  return (
+    <span className="health-dot">
+      <span className={`dot ${info.cls}`} />
+      {info.text}
+    </span>
+  );
+}
 
 // ===== Meter Component =====
 function Meter({ value, max = 100 }) {
-  const pct = Math.min((value / max) * 100, 100);
-  const cls = pct < 50 ? 'meter-green' : pct < 80 ? 'meter-amber' : 'meter-red';
+  const pct = Math.min(Math.max((value || 0) / max * 100, 0), 100);
+  const cls = meterClass(pct);
+  return <div className="meter"><div className={`meter-fill ${cls}`} style={{ width: `${pct}%` }} /></div>;
+}
+
+// ===== Resource Bar =====
+function ResourceBar({ value, max = 100, suffix = '%' }) {
+  const pct = Math.min(Math.max((value || 0) / max * 100, 0), 100);
   return (
-    <div>
-      <div className="meter"><div className={`meter-fill ${cls}`} style={{ width: `${pct}%` }}/></div>
-      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }} className="mono">{pct.toFixed(1)}%</div>
+    <div className="res-bar">
+      <div className="meter" style={{ flex: 1 }}>
+        <div className={`meter-fill ${meterClass(pct)}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="res-pct">{pct.toFixed(1)}{suffix}</span>
     </div>
   );
+}
+
+// ===== Derive container health =====
+function getContainerHealth(container, tasks) {
+  const key = `${container.projectName}_${container.serviceName}`;
+  const task = tasks && tasks[key];
+  if (!task) return 'unknown';
+  if (task.actual >= task.desired && task.actual > 0) return 'running';
+  if (task.actual === 0) return 'stopped';
+  return 'degraded';
 }
 
 // ===== Login/Setup Page =====
@@ -204,94 +395,17 @@ function LoginPage({ onLogin, addToast }) {
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="admin@example.com" />
           </div>
           <div className="form-group">
             <label>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} placeholder="Min 6 characters" />
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} disabled={loading}>
+          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 12, padding: '10px 16px' }} disabled={loading}>
             {loading ? 'Please wait...' : isSetup ? 'Create Admin' : 'Login'}
           </button>
         </form>
       </div>
-    </div>
-  );
-}
-
-// ===== Dashboard Page =====
-function DashboardPage({ addToast }) {
-  const [data, setData] = useState(null);
-
-  const load = useCallback(async () => {
-    try { setData(await api.get('/api/admin/dashboard')); } catch (err) { addToast(err.message, 'error'); }
-  }, []);
-
-  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
-
-  if (!data) return <div style={{ color: 'var(--text-dim)' }}>Loading dashboard...</div>;
-
-  const { dbStats, serverStats, containerStats } = data;
-  const cpuPct = serverStats?.cpuInfo?.usedPercentage ?? serverStats?.cpuUsagePercent ?? 0;
-  const ramPct = serverStats?.memInfo?.usedMemPercentage ?? serverStats?.memUsagePercent ?? 0;
-  const diskPct = parseFloat(serverStats?.diskInfo?.usedPercentage ?? serverStats?.diskUsagePercent ?? 0);
-
-  return (
-    <div>
-      <h2 className="page-title">Dashboard</h2>
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="label">Total Users</div>
-          <div className="value">{dbStats.total}</div>
-        </div>
-        <div className="stat-card">
-          <div className="label">Active</div>
-          <div className="value" style={{ color: 'var(--success)' }}>{dbStats.active}</div>
-        </div>
-        <div className="stat-card">
-          <div className="label">CPU Usage</div>
-          <div className="value mono">{cpuPct.toFixed(1)}%</div>
-          <Meter value={cpuPct} />
-        </div>
-        <div className="stat-card">
-          <div className="label">RAM Usage</div>
-          <div className="value mono">{ramPct.toFixed(1)}%</div>
-          <Meter value={ramPct} />
-        </div>
-        <div className="stat-card">
-          <div className="label">Disk Usage</div>
-          <div className="value mono">{diskPct.toFixed(1)}%</div>
-          <Meter value={diskPct} />
-        </div>
-      </div>
-
-      {containerStats && Array.isArray(containerStats) && containerStats.length > 0 && (
-        <div className="card">
-          <h3 style={{ fontSize: 14, marginBottom: 12, color: 'var(--text-dim)' }}>Running Containers</h3>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Project</th><th>Service</th><th>CPU %</th><th>RAM</th><th>RAM %</th></tr></thead>
-              <tbody>
-                {containerStats.map((c, i) => {
-                  const cpu = c.stats?.cpu?.percent ?? c.cpuPercent ?? c.cpu ?? 0;
-                  const memBytes = c.stats?.memory?.usage ?? 0;
-                  const memMB = (memBytes / 1024 / 1024).toFixed(1);
-                  const memPctC = c.stats?.memory?.percent ?? c.memoryPercent ?? c.memPercent ?? 0;
-                  return (
-                    <tr key={i}>
-                      <td className="mono" style={{ fontSize: 12 }}>{c.projectName || c.name || '-'}</td>
-                      <td className="mono" style={{ fontSize: 12 }}>{c.serviceName || '-'}</td>
-                      <td className="mono">{cpu.toFixed(2)}%</td>
-                      <td className="mono">{memBytes ? `${memMB} MB` : '-'}</td>
-                      <td className="mono">{memPctC.toFixed(1)}%</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -313,7 +427,6 @@ function CreateUserModal({ onClose, onCreated, addToast }) {
     ];
     setSteps(stepList.map((s, i) => ({ text: s, status: i === 0 ? 'active' : 'pending' })));
 
-    // Simulate step progress while actual API call runs
     let stepIdx = 0;
     const interval = setInterval(() => {
       stepIdx++;
@@ -357,13 +470,13 @@ function CreateUserModal({ onClose, onCreated, addToast }) {
               <label>Password</label>
               <input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} placeholder="Min 6 characters" />
             </div>
-            <div style={{ background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+            <div style={{ background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.18)', borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Unlimited Plan</div>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>4 CPU / 4GB RAM / Unlimited AI Models / All Channels / 24/7 Uptime</div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>4 CPU / 4GB RAM / Unlimited AI Models / All Channels / 24/7 Uptime</div>
             </div>
             <div className="form-group">
               <label>Notes (optional)</label>
-              <input value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+              <input value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="Internal notes..." />
             </div>
             <div className="form-actions">
               <button className="btn" onClick={onClose}>Cancel</button>
@@ -374,10 +487,10 @@ function CreateUserModal({ onClose, onCreated, addToast }) {
           <ul className="deploy-steps">
             {steps.map((s, i) => (
               <li key={i} className={s.status}>
-                {s.status === 'done' && <span style={{ color: 'var(--success)' }}>✓</span>}
+                {s.status === 'done' && <span style={{ color: 'var(--success)', fontWeight: 700 }}>&#10003;</span>}
                 {s.status === 'active' && <span className="spinner" />}
-                {s.status === 'pending' && <span style={{ width: 14, display: 'inline-block' }}>○</span>}
-                {s.status === 'error' && <span style={{ color: 'var(--danger)' }}>✗</span>}
+                {s.status === 'pending' && <span style={{ width: 14, display: 'inline-block', textAlign: 'center', color: 'var(--text-muted)' }}>&#9675;</span>}
+                {s.status === 'error' && <span style={{ color: 'var(--danger)', fontWeight: 700 }}>&#10007;</span>}
                 {s.text}
               </li>
             ))}
@@ -388,102 +501,388 @@ function CreateUserModal({ onClose, onCreated, addToast }) {
   );
 }
 
+// ===== Dashboard Page =====
+function DashboardPage({ addToast }) {
+  const [data, setData] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [actionLoading, setActionLoading] = useState({});
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.get('/api/admin/dashboard/live');
+      setData(d);
+      setLastUpdate(Date.now());
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 10000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  // Elapsed timer
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (lastUpdate) setElapsed((Date.now() - lastUpdate) / 1000);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [lastUpdate]);
+
+  const runAction = async (action, label) => {
+    setActionLoading(prev => ({ ...prev, [action]: true }));
+    try {
+      await api.post('/api/admin/server/action', { action });
+      addToast(`${label} completed`, 'success');
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+    setActionLoading(prev => ({ ...prev, [action]: false }));
+  };
+
+  if (!data) return <div style={{ color: 'var(--text-dim)', padding: 40, textAlign: 'center' }}>Loading dashboard...</div>;
+
+  const { system, containers, tasks, dbStats, users } = data;
+  const safeContainers = Array.isArray(containers) ? containers : [];
+  const safeTasks = tasks || {};
+  const safeUsers = Array.isArray(users) ? users : [];
+
+  const cpuPct = system?.cpuInfo?.usedPercentage ?? 0;
+  const ramPct = system?.memInfo?.usedMemPercentage ?? 0;
+  const totalMem = system?.memInfo?.totalMem ?? 0;
+  const usedMem = system?.memInfo?.usedMem ?? 0;
+  const diskPct = parseFloat(system?.diskInfo?.usedPercentage ?? 0);
+  const totalDisk = system?.diskInfo?.totalDisk ?? 0;
+  const usedDisk = system?.diskInfo?.usedDisk ?? 0;
+
+  // Sum network from containers
+  let totalNetIn = 0, totalNetOut = 0;
+  safeContainers.forEach(c => {
+    totalNetIn += (c.networkInput || 0);
+    totalNetOut += (c.networkOutput || 0);
+  });
+
+  // Running containers count
+  const runningCount = safeContainers.length;
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Dashboard</h2>
+          <div className="page-subtitle" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="pulse-dot" />
+            <span>Live</span>
+            <span style={{ margin: '0 4px' }}>&middot;</span>
+            <span className="updated-at">Updated {timeAgo(elapsed)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 1: Stat Cards */}
+      <div className="stat-grid">
+        <div className="stat-card">
+          <div className="label">Total Users</div>
+          <div className="value">{dbStats?.total ?? 0}</div>
+          <div className="sub">{dbStats?.planDistribution ? Object.entries(dbStats.planDistribution).map(([k,v]) => `${k}: ${v}`).join(' / ') : ''}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Active Users</div>
+          <div className="value" style={{ color: 'var(--success)' }}>{dbStats?.active ?? 0}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Suspended Users</div>
+          <div className="value" style={{ color: 'var(--danger)' }}>{dbStats?.suspended ?? 0}</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Running Containers</div>
+          <div className="value" style={{ color: 'var(--accent)' }}>{runningCount}</div>
+        </div>
+      </div>
+
+      {/* Row 2: Server Resource Gauges */}
+      <div className="section-title">Server Resources</div>
+      <div className="gauge-grid">
+        <RadialGauge value={cpuPct} label="CPU" />
+        <RadialGauge value={ramPct} label="RAM" sublabel={`${formatBytes(usedMem)} / ${formatBytes(totalMem)}`} />
+        <RadialGauge value={diskPct} label="Disk" sublabel={`${formatBytes(usedDisk)} / ${formatBytes(totalDisk)}`} />
+      </div>
+
+      {/* Row 3: Network I/O */}
+      <div className="section-title">Network I/O</div>
+      <div className="net-grid">
+        <div className="net-card">
+          <div className="net-icon" style={{ background: 'rgba(34,197,94,.1)' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 24, height: 24 }}>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+              <path d="M20 21H4"/>
+            </svg>
+          </div>
+          <div>
+            <div className="net-label">Network In</div>
+            <div className="net-value">{formatBytes(totalNetIn)}</div>
+          </div>
+        </div>
+        <div className="net-card">
+          <div className="net-icon" style={{ background: 'rgba(99,102,241,.1)' }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 24, height: 24 }}>
+              <polyline points="17 14 12 9 7 14"/>
+              <line x1="12" y1="9" x2="12" y2="21"/>
+              <path d="M20 3H4"/>
+            </svg>
+          </div>
+          <div>
+            <div className="net-label">Network Out</div>
+            <div className="net-value">{formatBytes(totalNetOut)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 4: Server Actions */}
+      <div className="section-title">Server Actions</div>
+      <div className="action-grid">
+        <div className={`action-card ${actionLoading.prune_images ? 'loading' : ''}`} onClick={() => runAction('prune_images', 'Prune Images')}>
+          <div className="action-icon">{Icons.prune}</div>
+          <div>
+            <div className="action-title">{actionLoading.prune_images ? <><span className="spinner" style={{ marginRight: 6 }} />Pruning...</> : 'Prune Images'}</div>
+            <div className="action-desc">Remove unused Docker images</div>
+          </div>
+        </div>
+        <div className={`action-card ${actionLoading.prune_builder ? 'loading' : ''}`} onClick={() => runAction('prune_builder', 'Prune Builder Cache')}>
+          <div className="action-icon">{Icons.prune}</div>
+          <div>
+            <div className="action-title">{actionLoading.prune_builder ? <><span className="spinner" style={{ marginRight: 6 }} />Pruning...</> : 'Prune Builder Cache'}</div>
+            <div className="action-desc">Clean Docker build cache</div>
+          </div>
+        </div>
+        <div className={`action-card ${actionLoading.restart_traefik ? 'loading' : ''}`} onClick={() => runAction('restart_traefik', 'Restart Traefik')}>
+          <div className="action-icon">{Icons.refresh}</div>
+          <div>
+            <div className="action-title">{actionLoading.restart_traefik ? <><span className="spinner" style={{ marginRight: 6 }} />Restarting...</> : 'Restart Traefik'}</div>
+            <div className="action-desc">Restart reverse proxy</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 5: Container Health Table */}
+      {safeContainers.length > 0 && (
+        <div className="section">
+          <div className="section-title">Container Health</div>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Service</th>
+                    <th>Health</th>
+                    <th>CPU %</th>
+                    <th>RAM</th>
+                    <th>RAM %</th>
+                    <th>Net In</th>
+                    <th>Net Out</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {safeContainers.map((c, i) => {
+                    const cpu = c.stats?.cpu?.percent ?? 0;
+                    const memBytes = c.stats?.memory?.usage ?? 0;
+                    const memPctC = c.stats?.memory?.percent ?? 0;
+                    const health = getContainerHealth(c, safeTasks);
+                    return (
+                      <tr key={i}>
+                        <td className="mono" style={{ fontSize: 12 }}>{c.projectName || '-'}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{c.serviceName || '-'}</td>
+                        <td><HealthDot status={health} /></td>
+                        <td className="mono" style={{ fontSize: 12 }}>{cpu.toFixed(2)}%</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(memBytes)}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{memPctC.toFixed(1)}%</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.networkInput || 0)}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.networkOutput || 0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Row 6: Per-User Resource Breakdown */}
+      {safeUsers.length > 0 && (
+        <div className="section">
+          <div className="section-title">Per-User Resource Breakdown</div>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th style={{ minWidth: 140 }}>CPU</th>
+                    <th style={{ minWidth: 140 }}>RAM</th>
+                    <th>Net In</th>
+                    <th>Net Out</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {safeUsers.map(u => {
+                    // Match container by project_name
+                    const uc = safeContainers.find(c => c.projectName === u.project_name);
+                    const cpu = uc?.stats?.cpu?.percent ?? 0;
+                    const memBytes = uc?.stats?.memory?.usage ?? 0;
+                    const memPct = uc?.stats?.memory?.percent ?? 0;
+                    const netIn = uc?.networkInput ?? 0;
+                    const netOut = uc?.networkOutput ?? 0;
+                    return (
+                      <tr key={u.id}>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{u.username}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
+                        </td>
+                        <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
+                        <td><ResourceBar value={cpu} /></td>
+                        <td>
+                          <ResourceBar value={memPct} />
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }} className="mono">{formatBytesShort(memBytes)}</div>
+                        </td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(netIn)}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(netOut)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ===== Users Page =====
 function UsersPage({ addToast }) {
   const [users, setUsers] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [liveData, setLiveData] = useState(null);
 
-  const load = useCallback(async () => {
-    try {
-      setUsers(await api.get('/api/admin/users'));
-    } catch (err) { addToast(err.message, 'error'); }
+  const loadUsers = useCallback(async () => {
+    try { setUsers(await api.get('/api/admin/users')); } catch (err) { addToast(err.message, 'error'); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadLive = useCallback(async () => {
+    try { setLiveData(await api.get('/api/admin/dashboard/live')); } catch (_) {}
+  }, []);
+
+  useEffect(() => { loadUsers(); loadLive(); }, [loadUsers, loadLive]);
+
+  const safeContainers = liveData?.containers || [];
+  const safeTasks = liveData?.tasks || {};
 
   const handleSuspend = async (user) => {
-    try {
-      await api.post(`/api/admin/users/${user.id}/suspend`);
-      addToast(`${user.username} suspended`, 'success');
-      load();
-    } catch (err) { addToast(err.message, 'error'); }
+    try { await api.post(`/api/admin/users/${user.id}/suspend`); addToast(`${user.username} suspended`, 'success'); loadUsers(); } catch (err) { addToast(err.message, 'error'); }
   };
-
   const handleActivate = async (user) => {
-    try {
-      await api.post(`/api/admin/users/${user.id}/activate`);
-      addToast(`${user.username} activated`, 'success');
-      load();
-    } catch (err) { addToast(err.message, 'error'); }
+    try { await api.post(`/api/admin/users/${user.id}/activate`); addToast(`${user.username} activated`, 'success'); loadUsers(); } catch (err) { addToast(err.message, 'error'); }
   };
-
   const handleDeploy = async (user) => {
-    try {
-      await api.post(`/api/admin/users/${user.id}/deploy`);
-      addToast(`${user.username} redeployed`, 'success');
-    } catch (err) { addToast(err.message, 'error'); }
+    try { await api.post(`/api/admin/users/${user.id}/deploy`); addToast(`${user.username} redeployed`, 'success'); } catch (err) { addToast(err.message, 'error'); }
   };
-
   const handleDelete = async (user) => {
     if (!confirm(`Delete user "${user.username}"? This will destroy their OpenClaw instance and ALL data. This cannot be undone.`)) return;
-    try {
-      await api.del(`/api/admin/users/${user.id}`);
-      addToast(`${user.username} deleted`, 'success');
-      load();
-    } catch (err) { addToast(err.message, 'error'); }
+    try { await api.del(`/api/admin/users/${user.id}`); addToast(`${user.username} deleted`, 'success'); loadUsers(); } catch (err) { addToast(err.message, 'error'); }
   };
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h2 className="page-title" style={{ marginBottom: 0 }}>Users</h2>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ New User</button>
+      <div className="page-header">
+        <div>
+          <h2 className="page-title" style={{ marginBottom: 0 }}>Users</h2>
+          <div className="page-subtitle">{users.length} total user{users.length !== 1 ? 's' : ''}</div>
+        </div>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New User
+        </button>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>User</th><th>Plan</th><th>Status</th><th>Domain</th><th>Resources</th><th>Expires</th><th>Actions</th></tr>
+              <tr>
+                <th>User</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Health</th>
+                <th>Domain</th>
+                <th>Resources</th>
+                <th style={{ minWidth: 120 }}>CPU</th>
+                <th style={{ minWidth: 120 }}>RAM</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
             </thead>
             <tbody>
-              {users.map(u => (
-                <tr key={u.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{u.username}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
-                  </td>
-                  <td><span className="badge" style={{ background: 'rgba(168,85,247,.15)', color: '#a855f7' }}>unlimited</span></td>
-                  <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
-                  <td>
-                    {u.domain ? (
-                      <a href={`https://${u.domain}`} target="_blank" rel="noopener" className="mono" style={{ fontSize: 12 }}>{u.domain}</a>
-                    ) : '-'}
-                  </td>
-                  <td className="mono" style={{ fontSize: 12 }}>{u.cpu_limit} CPU / {u.memory_limit}MB</td>
-                  <td style={{ fontSize: 12 }}>{u.expires_at ? new Date(u.expires_at).toLocaleDateString() : 'Never'}</td>
-                  <td>
-                    <div className="btn-group">
-                      {u.status === 'active' ? (
-                        <button className="btn btn-sm" onClick={() => handleSuspend(u)} title="Suspend">Suspend</button>
-                      ) : (
-                        <button className="btn btn-sm" onClick={() => handleActivate(u)} title="Activate" style={{ color: 'var(--success)' }}>Activate</button>
-                      )}
-                      <button className="btn btn-sm" onClick={() => handleDeploy(u)} title="Redeploy">Deploy</button>
-                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(u)} title="Delete">Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {users.map(u => {
+                const uc = safeContainers.find(c => c.projectName === u.project_name);
+                const taskKey = `${u.project_name}_${u.service_name}`;
+                const task = safeTasks[taskKey];
+                let health = 'unknown';
+                if (task) {
+                  if (task.actual >= task.desired && task.actual > 0) health = 'running';
+                  else if (task.actual === 0) health = 'stopped';
+                  else health = 'degraded';
+                }
+                const cpu = uc?.stats?.cpu?.percent ?? 0;
+                const memPct = uc?.stats?.memory?.percent ?? 0;
+                return (
+                  <tr key={u.id}>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{u.username}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
+                    </td>
+                    <td><span className="badge" style={{ background: 'rgba(168,85,247,.12)', color: '#a855f7' }}>unlimited</span></td>
+                    <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
+                    <td><HealthDot status={health} /></td>
+                    <td>
+                      {u.domain ? (
+                        <a href={`https://${u.domain}`} target="_blank" rel="noopener" className="mono" style={{ fontSize: 12 }}>{u.domain}</a>
+                      ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
+                    </td>
+                    <td className="mono" style={{ fontSize: 12 }}>{u.cpu_limit || '?'} CPU / {u.memory_limit || '?'}MB</td>
+                    <td><ResourceBar value={cpu} /></td>
+                    <td><ResourceBar value={memPct} /></td>
+                    <td style={{ fontSize: 12, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}</td>
+                    <td>
+                      <div className="btn-group">
+                        {u.status === 'active' ? (
+                          <button className="btn btn-sm" onClick={() => handleSuspend(u)} title="Suspend">Suspend</button>
+                        ) : (
+                          <button className="btn btn-sm" onClick={() => handleActivate(u)} title="Activate" style={{ color: 'var(--success)' }}>Activate</button>
+                        )}
+                        <button className="btn btn-sm" onClick={() => handleDeploy(u)} title="Redeploy">Deploy</button>
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(u)} title="Delete">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {users.length === 0 && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>No users yet. Click "New User" to create one.</td></tr>
+                <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 40 }}>No users yet. Click "New User" to create one.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={load} addToast={addToast} />}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={loadUsers} addToast={addToast} />}
     </div>
   );
 }
@@ -496,24 +895,41 @@ function ActivityPage({ addToast }) {
     api.get('/api/admin/activity').then(setLogs).catch(err => addToast(err.message, 'error'));
   }, []);
 
+  const actionColors = {
+    user_created: { bg: 'rgba(34,197,94,.1)', color: 'var(--success)' },
+    user_suspended: { bg: 'rgba(239,68,68,.1)', color: 'var(--danger)' },
+    user_activated: { bg: 'rgba(34,197,94,.1)', color: 'var(--success)' },
+    user_deleted: { bg: 'rgba(239,68,68,.1)', color: 'var(--danger)' },
+    user_deployed: { bg: 'rgba(99,102,241,.1)', color: 'var(--accent)' },
+    setup: { bg: 'rgba(99,102,241,.1)', color: 'var(--accent)' },
+  };
+
   return (
     <div>
-      <h2 className="page-title">Activity Log</h2>
-      <div className="card">
+      <div className="page-header">
+        <div>
+          <h2 className="page-title">Activity Log</h2>
+          <div className="page-subtitle">{logs.length} event{logs.length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead>
             <tbody>
-              {logs.map(l => (
-                <tr key={l.id}>
-                  <td className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString()}</td>
-                  <td>{l.username || '-'}</td>
-                  <td><span className="badge badge-basic">{l.action}</span></td>
-                  <td style={{ fontSize: 12, color: 'var(--text-dim)' }}>{l.details}</td>
-                </tr>
-              ))}
+              {logs.map(l => {
+                const ac = actionColors[l.action] || { bg: 'rgba(99,102,241,.1)', color: 'var(--accent)' };
+                return (
+                  <tr key={l.id}>
+                    <td className="mono" style={{ fontSize: 12, whiteSpace: 'nowrap', color: 'var(--text-dim)' }}>{new Date(l.created_at).toLocaleString()}</td>
+                    <td style={{ fontWeight: 500 }}>{l.username || <span style={{ color: 'var(--text-muted)' }}>system</span>}</td>
+                    <td><span className="badge" style={{ background: ac.bg, color: ac.color }}>{l.action}</span></td>
+                    <td style={{ fontSize: 12, color: 'var(--text-dim)', maxWidth: 400 }}>{l.details}</td>
+                  </tr>
+                );
+              })}
               {logs.length === 0 && (
-                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>No activity yet.</td></tr>
+                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 40 }}>No activity yet.</td></tr>
               )}
             </tbody>
           </table>
