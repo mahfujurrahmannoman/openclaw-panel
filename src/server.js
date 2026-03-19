@@ -610,20 +610,29 @@ const SSH_PORT = parseInt(process.env.SSH_PORT || '2222');
 const HOST_KEY_PATH = path.join(__dirname, '..', 'data', 'ssh_host_key');
 
 // Generate host key if not exists
+function generateHostKey() {
+  const { privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  });
+  fs.mkdirSync(path.dirname(HOST_KEY_PATH), { recursive: true });
+  fs.writeFileSync(HOST_KEY_PATH, privateKey, { mode: 0o600 });
+  console.log('SSH host key generated');
+  return privateKey;
+}
+
 function getOrCreateHostKey() {
   try {
-    return fs.readFileSync(HOST_KEY_PATH);
+    const key = fs.readFileSync(HOST_KEY_PATH, 'utf8');
+    // Validate it's PKCS1 format (RSA PRIVATE KEY), not PKCS8 (PRIVATE KEY)
+    if (!key.includes('RSA PRIVATE KEY')) {
+      console.log('SSH host key has wrong format, regenerating...');
+      return generateHostKey();
+    }
+    return key;
   } catch {
-    // ssh2 requires OpenSSH format private key
-    const { privateKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-      publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
-    });
-    fs.mkdirSync(path.dirname(HOST_KEY_PATH), { recursive: true });
-    fs.writeFileSync(HOST_KEY_PATH, privateKey, { mode: 0o600 });
-    console.log('SSH host key generated');
-    return privateKey;
+    return generateHostKey();
   }
 }
 
