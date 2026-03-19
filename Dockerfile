@@ -9,6 +9,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --production --ignore-scripts=false
 
+# Bust cache on every deploy - change this value to force rebuild
+ARG CACHE_BUST=v7
+
 # Copy application code
 COPY src/ ./src/
 COPY public/ ./public/
