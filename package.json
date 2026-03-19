@@ -1,6 +1,6 @@
 {
   "name": "openclaw-panel",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Multi-tenant OpenClaw AI Assistant hosting panel for RarHost",
   "main": "src/server.js",
   "scripts": {
