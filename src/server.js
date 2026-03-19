@@ -516,83 +516,105 @@ wss.on('connection', async (ws, request) => {
     return;
   }
 
-  ws.send(JSON.stringify({ type: 'output', data: '\x1b[90mFinding your container...\x1b[0m\r\n' }));
-
-  let containerId;
-  try {
-    containerId = await findContainerId(user.project_name, user.service_name || 'openclaw-gateway');
-  } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', data: `Docker error: ${err.message}` }));
-    ws.close();
-    return;
-  }
-
-  if (!containerId) {
-    ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying.` }));
-    ws.close();
-    return;
-  }
-
-  const wrapper = spawnContainerShell(containerId, 120, 30);
-
-  if (!wrapper.pid) {
-    ws.send(JSON.stringify({ type: 'error', data: 'Failed to start shell. Docker exec may not be available.' }));
-    ws.close();
-    return;
-  }
-
-  let closed = false;
+  let sessionClosed = false;
+  let currentWrapper = null;
   let lastActivity = Date.now();
+  let reconnectCount = 0;
+  let currentCols = 120, currentRows = 30;
+  const MAX_RECONNECTS = 50;
   const SESSION_TIMEOUT = 60 * 60 * 1000;
 
-  const cleanup = (reason) => {
-    if (closed) return;
-    closed = true;
-    clearInterval(heartbeatInterval);
-    clearInterval(activityCheckInterval);
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'exit', data: reason || 'Session ended.' }));
-      ws.close();
-    }
-    wrapper.kill();
+  const send = (type, data) => {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, data }));
   };
 
-  // Container output → browser
-  wrapper.onData((data) => {
-    lastActivity = Date.now();
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'output', data }));
-    }
-  });
+  // Connect (or reconnect) to the container
+  async function connectToContainer() {
+    if (sessionClosed) return;
 
-  // Shell process exited
-  wrapper.onExit(({ exitCode }) => {
-    cleanup(`Shell exited (code ${exitCode}).`);
-  });
+    // Find container
+    let containerId;
+    try {
+      containerId = await findContainerId(user.project_name, user.service_name || 'openclaw-gateway');
+    } catch (err) {
+      send('output', `\r\n\x1b[31mDocker error: ${err.message}\x1b[0m\r\n`);
+      return false;
+    }
+
+    if (!containerId) {
+      send('output', `\r\n\x1b[31mContainer not found for ${user.project_name}. Service may be stopped.\x1b[0m\r\n`);
+      return false;
+    }
+
+    const wrapper = spawnContainerShell(containerId, currentCols, currentRows);
+    if (!wrapper.pid) {
+      send('output', '\r\n\x1b[31mFailed to start shell.\x1b[0m\r\n');
+      return false;
+    }
+
+    currentWrapper = wrapper;
+
+    // Container output → browser
+    wrapper.onData((data) => {
+      lastActivity = Date.now();
+      send('output', data);
+    });
+
+    // When docker exec dies → auto-reconnect instead of closing
+    wrapper.onExit(({ exitCode }) => {
+      currentWrapper = null;
+      if (sessionClosed) return;
+
+      reconnectCount++;
+      if (reconnectCount > MAX_RECONNECTS) {
+        send('exit', 'Too many reconnects. Please click Connect again.');
+        ws.close();
+        return;
+      }
+
+      send('output', `\r\n\x1b[33m[Shell exited (code ${exitCode}). Reconnecting in 2s... (${reconnectCount}/${MAX_RECONNECTS})]\x1b[0m\r\n`);
+
+      // Auto-reconnect after 2 seconds
+      setTimeout(() => connectToContainer(), 2000);
+    });
+
+    return true;
+  }
+
+  // Initial connection
+  send('output', '\x1b[90mConnecting to your container...\x1b[0m\r\n');
+  const ok = await connectToContainer();
+  if (!ok && !sessionClosed) {
+    send('error', `Container not available for ${user.project_name}.`);
+    ws.close();
+    return;
+  }
 
   // Browser → container stdin
   ws.on('message', (msg) => {
-    if (closed) return;
+    if (sessionClosed) return;
     lastActivity = Date.now();
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        wrapper.write(parsed.data);
+        if (currentWrapper) currentWrapper.write(parsed.data);
       } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-        wrapper.resize(parsed.cols, parsed.rows);
+        currentCols = parsed.cols;
+        currentRows = parsed.rows;
+        if (currentWrapper) currentWrapper.resize(parsed.cols, parsed.rows);
       } else if (parsed.type === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+        send('pong', Date.now());
       }
     } catch {
-      wrapper.write(msg.toString());
+      if (currentWrapper) currentWrapper.write(msg.toString());
     }
   });
 
   ws.on('close', () => {
-    closed = true;
+    sessionClosed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
-    wrapper.kill();
+    if (currentWrapper) currentWrapper.kill();
   });
 
   ws.on('error', () => {});
@@ -610,14 +632,16 @@ wss.on('connection', async (ws, request) => {
   // 1 hour inactivity timeout
   const activityCheckInterval = setInterval(() => {
     if (Date.now() - lastActivity > SESSION_TIMEOUT) {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[33m[Session timed out after 1 hour of inactivity]\x1b[0m\r\n' }));
-      }
-      cleanup('Session timed out.');
+      send('output', '\r\n\x1b[33m[Session timed out after 1 hour of inactivity]\x1b[0m\r\n');
+      sessionClosed = true;
+      clearInterval(heartbeatInterval);
+      clearInterval(activityCheckInterval);
+      if (currentWrapper) currentWrapper.kill();
+      ws.close();
     }
   }, 60000);
 
-  ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${user.project_name}` }));
+  send('connected', `Connected to ${user.project_name}`);
 });
 
 // ==================== SSH SERVER ====================
@@ -730,44 +754,66 @@ const sshServer = new ssh2.Server({
 
         stream.write(`\r\nConnecting to ${authenticatedUser.project_name}...\r\n\r\n`);
 
-        // Use node-pty or script fallback for proper PTY
-        const wrapper = spawnContainerShell(containerId, 120, 30);
+        let sshClosed = false;
+        let currentShell = null;
+        let sshReconnects = 0;
+        let sshCols = 120, sshRows = 30;
 
-        if (!wrapper.pid) {
-          stream.write('\r\nError: Failed to start shell.\r\n');
-          stream.close();
-          client.end();
-          return;
+        // Connect (or reconnect) to container
+        function sshConnectShell() {
+          if (sshClosed) return;
+          const wrapper = spawnContainerShell(containerId, sshCols, sshRows);
+          if (!wrapper.pid) {
+            stream.write('\r\n\x1b[31mFailed to start shell.\x1b[0m\r\n');
+            return;
+          }
+          currentShell = wrapper;
+
+          // Container → SSH client
+          wrapper.onData((data) => {
+            try { stream.write(data); } catch (_) {}
+          });
+
+          // Auto-reconnect when docker exec dies
+          wrapper.onExit(({ exitCode }) => {
+            currentShell = null;
+            if (sshClosed) return;
+            sshReconnects++;
+            if (sshReconnects > 50) {
+              stream.write('\r\n\x1b[31mToo many reconnects. Disconnecting.\x1b[0m\r\n');
+              try { stream.close(); } catch (_) {}
+              try { client.end(); } catch (_) {}
+              return;
+            }
+            stream.write(`\r\n\x1b[33m[Shell exited (${exitCode}). Reconnecting... ${sshReconnects}/50]\x1b[0m\r\n`);
+            setTimeout(sshConnectShell, 2000);
+          });
         }
 
-        // Pipe: container → SSH client
-        wrapper.onData((data) => {
-          try { stream.write(data); } catch (_) {}
-        });
+        sshConnectShell();
 
-        // Pipe: SSH client → container
+        // SSH client → container
         stream.on('data', (data) => {
-          wrapper.write(data);
+          if (currentShell) currentShell.write(data);
         });
 
-        // Handle window resize from SSH client
+        // Handle window resize
         session.on('window-change', (accept, reject, info) => {
           if (accept) accept();
-          wrapper.resize(info.cols, info.rows);
+          sshCols = info.cols;
+          sshRows = info.rows;
+          if (currentShell) currentShell.resize(info.cols, info.rows);
         });
 
         // Cleanup
-        wrapper.onExit(() => {
-          try { stream.close(); } catch (_) {}
-          try { client.end(); } catch (_) {}
-        });
-
         stream.on('close', () => {
-          wrapper.kill();
+          sshClosed = true;
+          if (currentShell) currentShell.kill();
         });
 
         client.on('end', () => {
-          wrapper.kill();
+          sshClosed = true;
+          if (currentShell) currentShell.kill();
         });
 
         db.logActivity(authenticatedUser.id, 'ssh_connected', `SSH session from ${authenticatedUser.username}`);
