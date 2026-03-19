@@ -16,6 +16,6 @@ COPY public/ ./public/
 # Create data directory for SQLite
 RUN mkdir -p /app/data
 
-EXPOSE 3001
+EXPOSE 3001 2222
 
 CMD ["node", "src/server.js"]

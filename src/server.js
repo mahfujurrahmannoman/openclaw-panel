@@ -596,6 +596,164 @@ wss.on('connection', async (ws, request) => {
   ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${user.project_name}` }));
 });
 
+// ==================== SSH SERVER ====================
+// Provides reliable terminal access via PuTTY/SSH clients.
+// Users authenticate with their panel username + password.
+// Auto-execs into their Docker container.
+
+const ssh2 = require('ssh2');
+const fs = require('fs');
+const crypto = require('crypto');
+
+const SSH_PORT = parseInt(process.env.SSH_PORT || '2222');
+const HOST_KEY_PATH = path.join(__dirname, '..', 'data', 'ssh_host_key');
+
+// Generate host key if not exists
+function getOrCreateHostKey() {
+  try {
+    return fs.readFileSync(HOST_KEY_PATH);
+  } catch {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+    fs.mkdirSync(path.dirname(HOST_KEY_PATH), { recursive: true });
+    fs.writeFileSync(HOST_KEY_PATH, privateKey, { mode: 0o600 });
+    console.log('SSH host key generated');
+    return privateKey;
+  }
+}
+
+const sshServer = new ssh2.Server({
+  hostKeys: [getOrCreateHostKey()],
+  banner: 'OpenClaw Hosting Panel - RarHost\r\n',
+}, (client) => {
+  let authenticatedUser = null;
+
+  client.on('authentication', (ctx) => {
+    if (ctx.method === 'password') {
+      const user = db.verifyUser(ctx.username, ctx.password);
+      if (user) {
+        authenticatedUser = user;
+        ctx.accept();
+        return;
+      }
+      // Also try email as username
+      const userByEmail = db.verifyUser(ctx.username, ctx.password);
+      if (userByEmail) {
+        authenticatedUser = userByEmail;
+        ctx.accept();
+        return;
+      }
+    }
+    ctx.reject(['password']);
+  });
+
+  client.on('ready', () => {
+    client.on('session', (accept) => {
+      const session = accept();
+
+      session.on('pty', (accept, reject, info) => {
+        accept();
+      });
+
+      session.on('shell', async (accept) => {
+        const stream = accept();
+
+        if (!authenticatedUser || !authenticatedUser.project_name) {
+          stream.write('\r\nError: No OpenClaw instance found for your account.\r\n');
+          stream.close();
+          client.end();
+          return;
+        }
+
+        if (authenticatedUser.status === 'suspended') {
+          stream.write('\r\nError: Your account is suspended. Contact admin.\r\n');
+          stream.close();
+          client.end();
+          return;
+        }
+
+        // Find container
+        let containerId;
+        try {
+          containerId = await findContainerId(
+            authenticatedUser.project_name,
+            authenticatedUser.service_name || 'openclaw-gateway'
+          );
+        } catch (_) {}
+
+        if (!containerId) {
+          stream.write('\r\nError: Container not running. Try again in a few seconds.\r\n');
+          stream.close();
+          client.end();
+          return;
+        }
+
+        stream.write(`\r\nConnecting to ${authenticatedUser.project_name}...\r\n\r\n`);
+
+        // Spawn docker exec with PTY via script
+        const dockerCmd = `docker exec -it -e TERM=xterm-256color ${containerId} /bin/bash`;
+        const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
+
+        if (!shell.pid) {
+          stream.write('\r\nError: Failed to start shell.\r\n');
+          stream.close();
+          client.end();
+          return;
+        }
+
+        // Set terminal size
+        setTimeout(() => {
+          shell.stdin.write('stty cols 120 rows 30 && clear\n');
+        }, 500);
+
+        // Pipe: container → SSH client
+        shell.stdout.on('data', (data) => {
+          try { stream.write(data); } catch (_) {}
+        });
+        shell.stderr.on('data', (data) => {
+          try { stream.write(data); } catch (_) {}
+        });
+
+        // Pipe: SSH client → container
+        stream.on('data', (data) => {
+          try { shell.stdin.write(data); } catch (_) {}
+        });
+
+        // Handle window resize from SSH client
+        session.on('window-change', (accept, reject, info) => {
+          if (accept) accept();
+          shell.stdin.write(`stty cols ${info.cols} rows ${info.rows}\n`);
+        });
+
+        // Cleanup
+        shell.on('close', () => {
+          try { stream.close(); } catch (_) {}
+          try { client.end(); } catch (_) {}
+        });
+
+        stream.on('close', () => {
+          try { shell.kill(); } catch (_) {}
+        });
+
+        client.on('end', () => {
+          try { shell.kill(); } catch (_) {}
+        });
+
+        db.logActivity(authenticatedUser.id, 'ssh_connected', `SSH session from ${authenticatedUser.username}`);
+      });
+    });
+  });
+
+  client.on('error', () => {});
+});
+
+sshServer.listen(SSH_PORT, '0.0.0.0', () => {
+  console.log(`SSH Server running on port ${SSH_PORT}`);
+});
+
 // ==================== START ====================
 
 const PORT = process.env.PORT || 3001;
@@ -603,4 +761,5 @@ server.listen(PORT, () => {
   console.log(`OpenClaw Panel running on http://localhost:${PORT}`);
   console.log(`Admin Panel: http://localhost:${PORT}/admin`);
   console.log(`User Panel:  http://localhost:${PORT}/panel`);
+  console.log(`SSH Access:  ssh <username>@<host> -p ${SSH_PORT}`);
 });
