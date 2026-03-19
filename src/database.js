@@ -112,8 +112,8 @@ class PanelDatabase {
     );
   }
 
-  verifyUser(email, password) {
-    const user = this.db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  verifyUser(emailOrUsername, password) {
+    const user = this.db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(emailOrUsername, emailOrUsername);
     if (!user) return null;
     if (!bcrypt.compareSync(password, user.password)) return null;
     const { password: _, api_key_encrypted: __, ...safe } = user;
