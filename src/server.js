@@ -613,10 +613,11 @@ function getOrCreateHostKey() {
   try {
     return fs.readFileSync(HOST_KEY_PATH);
   } catch {
+    // ssh2 requires OpenSSH format private key
     const { privateKey } = crypto.generateKeyPairSync('rsa', {
       modulusLength: 2048,
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+      publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
     });
     fs.mkdirSync(path.dirname(HOST_KEY_PATH), { recursive: true });
     fs.writeFileSync(HOST_KEY_PATH, privateKey, { mode: 0o600 });
