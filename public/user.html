@@ -538,11 +538,12 @@ function ConsolePage({ addToast }) {
         } else if (msg.type === 'connected') {
           setStatus('connected');
           addToast(msg.data, 'success');
-          // Send terminal size immediately so PTY gets correct dimensions
+          // Send terminal size and focus terminal for keyboard input
           if (xtermRef.current && fitRef.current) {
             fitRef.current.fit();
             const term = xtermRef.current;
             ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            term.focus();
           }
         } else if (msg.type === 'error') {
           setStatus('disconnected');
@@ -590,6 +591,7 @@ function ConsolePage({ addToast }) {
       fontSize: 13,
       cursorBlink: true,
       scrollback: 5000,
+      allowProposedApi: true,
     });
 
     const fit = new window.FitAddon.FitAddon();
@@ -606,6 +608,18 @@ function ConsolePage({ addToast }) {
       if (wsRef.current?.readyState === 1) {
         wsRef.current.send(JSON.stringify({ type: 'input', data }));
       }
+    });
+
+    // Focus terminal on click so keyboard input works
+    termRef.current.addEventListener('click', () => term.focus());
+
+    // Also handle paste via browser
+    term.attachCustomKeyEventHandler((e) => {
+      // Allow Ctrl+V / Cmd+V paste
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') return false;
+      // Allow Ctrl+C / Cmd+C copy
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && term.hasSelection()) return false;
+      return true;
     });
 
     const handleResize = () => { fit.fit(); };
