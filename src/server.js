@@ -435,8 +435,12 @@ wss.on('connection', async (ws, request) => {
 
   // Spawn `docker exec -it <container> /bin/bash` via child_process
   // This bypasses dockerode's broken hijack mode in Swarm
-  const shell = spawn('docker', [
-    'exec', '-i',
+  // Use `script` to force PTY allocation for docker exec.
+  // Without a PTY, bash runs silently (no prompt, no color, no interactive features).
+  // `script -q /dev/null` creates a pseudo-terminal wrapper.
+  const shell = spawn('script', [
+    '-q', '/dev/null',
+    'docker', 'exec', '-it',
     '-e', 'TERM=xterm-256color',
     '-e', 'COLUMNS=120',
     '-e', 'LINES=30',
