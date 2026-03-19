@@ -409,14 +409,13 @@ async function findContainer(projectName, serviceName, retries = 3) {
 function attachStream(ws, exec, stream, projectName) {
   let closed = false;
   let lastActivity = Date.now();
-  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour session timeout
+  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour inactivity timeout
 
   const cleanup = (reason) => {
     if (closed) return;
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
-    clearInterval(execCheckInterval);
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'exit', data: reason || 'Session ended.' }));
       ws.close();
@@ -432,9 +431,13 @@ function attachStream(ws, exec, stream, projectName) {
     }
   });
 
-  // DO NOT listen for stream 'end' or 'close' — they fire prematurely in Docker Swarm.
-  // Instead, we poll exec.inspect() to detect when the shell process actually exits.
-  stream.on('error', () => {}); // Suppress unhandled error events
+  // DO NOT listen for stream 'end', 'close', or 'error' — they ALL fire
+  // prematurely/unreliably in Docker Swarm exec mode.
+  // DO NOT use exec.inspect() — it returns Running:false immediately in Swarm.
+  // Session closes ONLY when: user disconnects, write fails, or 1hr timeout.
+  stream.on('error', () => {});
+  stream.on('end', () => {});
+  stream.on('close', () => {});
 
   // Receive input from browser
   ws.on('message', (msg) => {
@@ -443,14 +446,21 @@ function attachStream(ws, exec, stream, projectName) {
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        try { stream.write(parsed.data); } catch (_) { cleanup('Connection to container lost.'); }
+        if (!stream.writable) { cleanup('Connection to container lost.'); return; }
+        stream.write(parsed.data, (err) => {
+          if (err) cleanup('Connection to container lost.');
+        });
       } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
     } catch {
-      try { stream.write(msg.toString()); } catch (_) { cleanup('Connection to container lost.'); }
+      if (stream.writable) {
+        stream.write(msg.toString(), (err) => {
+          if (err) cleanup('Connection to container lost.');
+        });
+      }
     }
   });
 
@@ -458,7 +468,6 @@ function attachStream(ws, exec, stream, projectName) {
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
-    clearInterval(execCheckInterval);
     try { stream.destroy(); } catch (_) {}
   });
 
@@ -474,21 +483,7 @@ function attachStream(ws, exec, stream, projectName) {
     }
   }, 8000);
 
-  // Poll exec.inspect() every 5s to detect when shell process actually exits
-  // This is the ONLY way we detect session end — not stream events
-  const execCheckInterval = setInterval(async () => {
-    try {
-      const info = await exec.inspect();
-      if (info.Running === false) {
-        cleanup('Shell process exited.');
-      }
-    } catch (_) {
-      // inspect failed — container may have been removed
-      cleanup('Container connection lost.');
-    }
-  }, 5000);
-
-  // Check session timeout (1 hour of no activity)
+  // 1 hour inactivity timeout
   const activityCheckInterval = setInterval(() => {
     if (Date.now() - lastActivity > SESSION_TIMEOUT) {
       if (ws.readyState === ws.OPEN) {
