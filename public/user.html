@@ -682,12 +682,14 @@ function ConsolePage({ addToast }) {
         <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8 }}>Quick Commands</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 8 }}>
           {[
-            { label: 'Create alias shortcut', cmd: 'echo "alias openclaw=\'node dist/index.js\'" >> ~/.bashrc && source ~/.bashrc' },
-            { label: 'Run onboarding wizard', cmd: 'node dist/index.js onboard --no-install-daemon' },
+            { label: 'Run onboarding (FIRST!)', cmd: 'node dist/index.js onboard --no-install-daemon' },
             { label: 'Get dashboard URL', cmd: 'node dist/index.js dashboard --no-open' },
             { label: 'List devices', cmd: 'node dist/index.js devices list' },
+            { label: 'Approve device', cmd: 'node dist/index.js devices approve ' },
+            { label: 'Approve Telegram', cmd: 'node dist/index.js pairing approve telegram ' },
             { label: 'List channels', cmd: 'node dist/index.js channels list' },
             { label: 'Connect WhatsApp', cmd: 'node dist/index.js channels login' },
+            { label: 'Create alias', cmd: 'echo "alias openclaw=\'node dist/index.js\'" >> ~/.bashrc && source ~/.bashrc' },
           ].map((c, i) => (
             <div key={i} style={{ background: '#f4f4f5', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <div>
@@ -756,7 +758,7 @@ function SetupGuidePage({ addToast }) {
         <span className="step-badge critical">Critical</span>
         <h4>Run the Onboarding Wizard</h4>
         <p>This is the most important step. The onboarding wizard sets up your AI model, channels, and configuration.</p>
-        <CmdBox onCopy={addToast}>openclaw onboard --no-install-daemon</CmdBox>
+        <CmdBox onCopy={addToast}>node dist/index.js onboard --no-install-daemon</CmdBox>
         <p style={{ marginTop: 8 }}>Or if alias doesn't work:</p>
         <CmdBox onCopy={addToast}>node dist/index.js onboard --no-install-daemon</CmdBox>
         <p style={{ marginTop: 12 }}>The wizard will ask you several questions:</p>
