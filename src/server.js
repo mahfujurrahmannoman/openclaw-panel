@@ -445,57 +445,34 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-// node-pty gives us a real pseudo-terminal — no more `script` wrapper,
-// no premature stream deaths, proper resize support.
-// Falls back to child_process.spawn + script if node-pty isn't available.
+// Python PTY helper creates a real pseudo-terminal for docker exec.
+// Python3's pty module is available on Alpine (no native build needed).
+// This is far more reliable than the `script` wrapper.
 const { spawn } = require('child_process');
-let pty;
-try { pty = require('node-pty'); } catch (e) { console.warn('node-pty not available, falling back to script wrapper:', e.message); }
+const PTY_HELPER = path.join(__dirname, 'pty-helper.py');
 
-// Spawn a shell in a container with proper PTY
 function spawnContainerShell(containerId, cols = 120, rows = 30) {
-  if (pty) {
-    // node-pty: real PTY, proper resize, no hacks needed
-    const shell = pty.spawn('docker', [
-      'exec', '-it',
-      '-e', 'TERM=xterm-256color',
-      containerId, '/bin/bash'
-    ], {
-      name: 'xterm-256color',
-      cols: cols,
-      rows: rows,
-      cwd: '/app',
-    });
-    return {
-      type: 'pty',
-      shell,
-      write: (data) => shell.write(data),
-      resize: (c, r) => { try { shell.resize(c, r); } catch(_){} },
-      onData: (cb) => shell.onData(cb),
-      onExit: (cb) => shell.onExit(cb),
-      kill: () => { try { shell.kill(); } catch(_){} },
-      pid: shell.pid,
-    };
-  } else {
-    // Fallback: script wrapper
-    const dockerCmd = `docker exec -it -e TERM=xterm-256color ${containerId} /bin/bash`;
-    const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
-    // Set cols/rows via stty after a delay
-    setTimeout(() => { try { shell.stdin.write(`stty cols ${cols} rows ${rows} && clear\n`); } catch(_){} }, 500);
-    return {
-      type: 'script',
-      shell,
-      write: (data) => { try { shell.stdin.write(data); } catch(_){} },
-      resize: (c, r) => { try { shell.stdin.write(`stty cols ${c} rows ${r}\n`); } catch(_){} },
-      onData: (cb) => {
-        shell.stdout.on('data', (d) => cb(d.toString()));
-        shell.stderr.on('data', (d) => cb(d.toString()));
-      },
-      onExit: (cb) => shell.on('close', (code) => cb({ exitCode: code })),
-      kill: () => { try { shell.kill(); } catch(_){} },
-      pid: shell.pid,
-    };
-  }
+  const shell = spawn('python3', [PTY_HELPER, containerId, String(cols), String(rows)], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+  });
+
+  return {
+    type: 'python-pty',
+    shell,
+    write: (data) => { try { shell.stdin.write(data); } catch(_){} },
+    resize: (c, r) => {
+      // Send resize command via special escape sequence
+      try { shell.stdin.write(`\x1bRESIZE:${c}:${r}\n`); } catch(_){}
+    },
+    onData: (cb) => {
+      shell.stdout.on('data', (d) => cb(d.toString()));
+      shell.stderr.on('data', (d) => cb(d.toString()));
+    },
+    onExit: (cb) => shell.on('close', (code) => cb({ exitCode: code })),
+    kill: () => { try { shell.kill('SIGTERM'); } catch(_){} },
+    pid: shell.pid,
+  };
 }
 
 // Find container ID by Swarm service label
