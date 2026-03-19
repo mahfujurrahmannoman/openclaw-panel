@@ -376,10 +376,15 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-// Helper: find Docker Swarm container with retry (Swarm tasks can take a moment)
-async function findContainer(projectName, serviceName, retries = 3) {
+// Use child_process.spawn('docker', ['exec']) instead of dockerode exec API.
+// Dockerode's exec hijack mode breaks stdin in Docker Swarm — the writable side
+// of the stream dies immediately. Spawning `docker exec` via CLI works reliably.
+const { spawn } = require('child_process');
+
+// Find container ID by Swarm service label
+async function findContainerId(projectName, serviceName) {
   const swarmServiceName = `${projectName}_${serviceName}`;
-  for (let attempt = 0; attempt < retries; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const containers = await docker.listContainers({
         all: false,
@@ -388,28 +393,66 @@ async function findContainer(projectName, serviceName, retries = 3) {
           status: ['running'],
         }),
       });
-      if (containers.length > 0) return docker.getContainer(containers[0].Id);
+      if (containers.length > 0) return containers[0].Id;
 
-      // Fallback: match by name prefix (for non-Swarm or edge cases)
+      // Fallback: match by name prefix
       const allContainers = await docker.listContainers({ all: false });
       const match = allContainers.find(c => {
         const names = (c.Names || []).map(n => n.replace(/^\//, ''));
         return names.some(n => n.startsWith(swarmServiceName));
       });
-      if (match) return docker.getContainer(match.Id);
+      if (match) return match.Id;
     } catch (_) {}
-
-    // Wait before retry
-    if (attempt < retries - 1) await new Promise(r => setTimeout(r, 2000));
+    if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
   }
   return null;
 }
 
-// Helper: wire up exec stream to WebSocket
-function attachStream(ws, exec, stream, projectName) {
+wss.on('connection', async (ws, request) => {
+  const user = db.getUserById(request.auth.id);
+  if (!user || !user.project_name) {
+    ws.send(JSON.stringify({ type: 'error', data: 'User or project not found' }));
+    ws.close();
+    return;
+  }
+
+  ws.send(JSON.stringify({ type: 'output', data: '\x1b[90mFinding your container...\x1b[0m\r\n' }));
+
+  let containerId;
+  try {
+    containerId = await findContainerId(user.project_name, user.service_name || 'openclaw-gateway');
+  } catch (err) {
+    ws.send(JSON.stringify({ type: 'error', data: `Docker error: ${err.message}` }));
+    ws.close();
+    return;
+  }
+
+  if (!containerId) {
+    ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying.` }));
+    ws.close();
+    return;
+  }
+
+  // Spawn `docker exec -it <container> /bin/bash` via child_process
+  // This bypasses dockerode's broken hijack mode in Swarm
+  const shell = spawn('docker', [
+    'exec', '-i',
+    '-e', 'TERM=xterm-256color',
+    '-e', 'COLUMNS=120',
+    '-e', 'LINES=30',
+    containerId,
+    '/bin/bash',
+  ]);
+
+  if (!shell.pid) {
+    ws.send(JSON.stringify({ type: 'error', data: 'Failed to start shell. Docker exec may not be available.' }));
+    ws.close();
+    return;
+  }
+
   let closed = false;
   let lastActivity = Date.now();
-  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour inactivity timeout
+  const SESSION_TIMEOUT = 60 * 60 * 1000;
 
   const cleanup = (reason) => {
     if (closed) return;
@@ -420,42 +463,48 @@ function attachStream(ws, exec, stream, projectName) {
       ws.send(JSON.stringify({ type: 'exit', data: reason || 'Session ended.' }));
       ws.close();
     }
-    try { stream.destroy(); } catch (_) {}
+    try { shell.kill(); } catch (_) {}
   };
 
-  // Send container output to browser
-  stream.on('data', (chunk) => {
+  // Container stdout → browser
+  shell.stdout.on('data', (chunk) => {
     lastActivity = Date.now();
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
     }
   });
 
-  // DO NOT listen for stream 'end', 'close', or 'error' — they ALL fire
-  // prematurely/unreliably in Docker Swarm exec mode.
-  // DO NOT use exec.inspect() — it returns Running:false immediately in Swarm.
-  // Session closes ONLY when: user disconnects, write fails, or 1hr timeout.
-  stream.on('error', () => {});
-  stream.on('end', () => {});
-  stream.on('close', () => {});
+  // Container stderr → browser
+  shell.stderr.on('data', (chunk) => {
+    lastActivity = Date.now();
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
+    }
+  });
 
-  // Receive input from browser — NO error checking on write.
-  // Docker Swarm exec streams report false errors on write even when data goes through.
-  // Session only closes on: user disconnect or 1hr timeout. Never on write errors.
+  // Shell process exited
+  shell.on('close', (code) => {
+    cleanup(`Shell exited (code ${code}).`);
+  });
+
+  shell.on('error', (err) => {
+    cleanup(`Shell error: ${err.message}`);
+  });
+
+  // Browser → container stdin
   ws.on('message', (msg) => {
     if (closed) return;
     lastActivity = Date.now();
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        try { stream.write(parsed.data); } catch (_) {}
-      } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-        exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
+        shell.stdin.write(parsed.data);
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
+      // Note: resize not supported via docker exec CLI — terminal uses initial size
     } catch {
-      try { stream.write(msg.toString()); } catch (_) {}
+      shell.stdin.write(msg.toString());
     }
   });
 
@@ -463,12 +512,12 @@ function attachStream(ws, exec, stream, projectName) {
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
-    try { stream.destroy(); } catch (_) {}
+    try { shell.kill(); } catch (_) {}
   });
 
-  ws.on('error', () => {}); // Don't cleanup on ws error — let close handle it
+  ws.on('error', () => {});
 
-  // Heartbeat every 8s to keep connection alive through Traefik/proxy
+  // Heartbeat every 8s
   const heartbeatInterval = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'heartbeat', ts: Date.now() }));
@@ -488,51 +537,7 @@ function attachStream(ws, exec, stream, projectName) {
     }
   }, 60000);
 
-  ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${projectName}` }));
-}
-
-wss.on('connection', async (ws, request) => {
-  const user = db.getUserById(request.auth.id);
-  if (!user || !user.project_name) {
-    ws.send(JSON.stringify({ type: 'error', data: 'User or project not found' }));
-    ws.close();
-    return;
-  }
-
-  ws.send(JSON.stringify({ type: 'output', data: '\x1b[90mFinding your container...\x1b[0m\r\n' }));
-
-  let container;
-  try {
-    container = await findContainer(user.project_name, user.service_name || 'openclaw-gateway');
-  } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', data: `Docker error: ${err.message}. Ensure the panel runs on the same server as Easypanel.` }));
-    ws.close();
-    return;
-  }
-
-  if (!container) {
-    ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying. Try again in a few seconds.` }));
-    ws.close();
-    return;
-  }
-
-  // Try bash first, fall back to sh
-  for (const shell of ['/bin/bash', '/bin/sh']) {
-    try {
-      const exec = await container.exec({
-        Cmd: [shell],
-        AttachStdin: true, AttachStdout: true, AttachStderr: true,
-        Tty: true, Env: ['TERM=xterm-256color', 'COLUMNS=120', 'LINES=30'],
-      });
-      const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-      await exec.resize({ h: 30, w: 120 }).catch(() => {});
-      attachStream(ws, exec, stream, user.project_name);
-      return;
-    } catch (_) { continue; }
-  }
-
-  ws.send(JSON.stringify({ type: 'error', data: 'No shell available in container' }));
-  ws.close();
+  ws.send(JSON.stringify({ type: 'connected', data: `Connected to ${user.project_name}` }));
 });
 
 // ==================== START ====================
