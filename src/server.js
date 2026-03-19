@@ -428,10 +428,58 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-// Use child_process.spawn('docker', ['exec']) instead of dockerode exec API.
-// Dockerode's exec hijack mode breaks stdin in Docker Swarm — the writable side
-// of the stream dies immediately. Spawning `docker exec` via CLI works reliably.
+// node-pty gives us a real pseudo-terminal — no more `script` wrapper,
+// no premature stream deaths, proper resize support.
+// Falls back to child_process.spawn + script if node-pty isn't available.
 const { spawn } = require('child_process');
+let pty;
+try { pty = require('node-pty'); } catch (e) { console.warn('node-pty not available, falling back to script wrapper:', e.message); }
+
+// Spawn a shell in a container with proper PTY
+function spawnContainerShell(containerId, cols = 120, rows = 30) {
+  if (pty) {
+    // node-pty: real PTY, proper resize, no hacks needed
+    const shell = pty.spawn('docker', [
+      'exec', '-it',
+      '-e', 'TERM=xterm-256color',
+      containerId, '/bin/bash'
+    ], {
+      name: 'xterm-256color',
+      cols: cols,
+      rows: rows,
+      cwd: '/app',
+    });
+    return {
+      type: 'pty',
+      shell,
+      write: (data) => shell.write(data),
+      resize: (c, r) => { try { shell.resize(c, r); } catch(_){} },
+      onData: (cb) => shell.onData(cb),
+      onExit: (cb) => shell.onExit(cb),
+      kill: () => { try { shell.kill(); } catch(_){} },
+      pid: shell.pid,
+    };
+  } else {
+    // Fallback: script wrapper
+    const dockerCmd = `docker exec -it -e TERM=xterm-256color ${containerId} /bin/bash`;
+    const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
+    // Set cols/rows via stty after a delay
+    setTimeout(() => { try { shell.stdin.write(`stty cols ${cols} rows ${rows} && clear\n`); } catch(_){} }, 500);
+    return {
+      type: 'script',
+      shell,
+      write: (data) => { try { shell.stdin.write(data); } catch(_){} },
+      resize: (c, r) => { try { shell.stdin.write(`stty cols ${c} rows ${r}\n`); } catch(_){} },
+      onData: (cb) => {
+        shell.stdout.on('data', (d) => cb(d.toString()));
+        shell.stderr.on('data', (d) => cb(d.toString()));
+      },
+      onExit: (cb) => shell.on('close', (code) => cb({ exitCode: code })),
+      kill: () => { try { shell.kill(); } catch(_){} },
+      pid: shell.pid,
+    };
+  }
+}
 
 // Find container ID by Swarm service label
 async function findContainerId(projectName, serviceName) {
@@ -485,15 +533,9 @@ wss.on('connection', async (ws, request) => {
     return;
   }
 
-  // Spawn `docker exec -it <container> /bin/bash` via child_process
-  // This bypasses dockerode's broken hijack mode in Swarm
-  // Use `script` to force PTY allocation for docker exec.
-  // Without a PTY, bash runs silently (no prompt, no color, no interactive features).
-  // Alpine's script syntax: script -q -c "command" /dev/null
-  const dockerCmd = `docker exec -it -e TERM=xterm-256color -e COLUMNS=120 -e LINES=30 ${containerId} /bin/bash`;
-  const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
+  const wrapper = spawnContainerShell(containerId, 120, 30);
 
-  if (!shell.pid) {
+  if (!wrapper.pid) {
     ws.send(JSON.stringify({ type: 'error', data: 'Failed to start shell. Docker exec may not be available.' }));
     ws.close();
     return;
@@ -512,38 +554,21 @@ wss.on('connection', async (ws, request) => {
       ws.send(JSON.stringify({ type: 'exit', data: reason || 'Session ended.' }));
       ws.close();
     }
-    try { shell.kill(); } catch (_) {}
+    wrapper.kill();
   };
 
-  // Container stdout → browser
-  shell.stdout.on('data', (chunk) => {
+  // Container output → browser
+  wrapper.onData((data) => {
     lastActivity = Date.now();
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
-    }
-  });
-
-  // Container stderr → browser
-  shell.stderr.on('data', (chunk) => {
-    lastActivity = Date.now();
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'output', data: chunk.toString() }));
+      ws.send(JSON.stringify({ type: 'output', data }));
     }
   });
 
   // Shell process exited
-  shell.on('close', (code) => {
-    cleanup(`Shell exited (code ${code}).`);
+  wrapper.onExit(({ exitCode }) => {
+    cleanup(`Shell exited (code ${exitCode}).`);
   });
-
-  shell.on('error', (err) => {
-    cleanup(`Shell error: ${err.message}`);
-  });
-
-  // Set initial PTY size — `script` inherits 0 cols from pipe, so we must set it via stty
-  setTimeout(() => {
-    if (!closed) shell.stdin.write('stty cols 120 rows 30 && clear\n');
-  }, 500);
 
   // Browser → container stdin
   ws.on('message', (msg) => {
@@ -552,15 +577,14 @@ wss.on('connection', async (ws, request) => {
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        shell.stdin.write(parsed.data);
+        wrapper.write(parsed.data);
       } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-        // Resize PTY via stty command
-        shell.stdin.write(`stty cols ${parsed.cols} rows ${parsed.rows}\n`);
+        wrapper.resize(parsed.cols, parsed.rows);
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
     } catch {
-      shell.stdin.write(msg.toString());
+      wrapper.write(msg.toString());
     }
   });
 
@@ -568,7 +592,7 @@ wss.on('connection', async (ws, request) => {
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
-    try { shell.kill(); } catch (_) {}
+    wrapper.kill();
   });
 
   ws.on('error', () => {});
@@ -706,53 +730,44 @@ const sshServer = new ssh2.Server({
 
         stream.write(`\r\nConnecting to ${authenticatedUser.project_name}...\r\n\r\n`);
 
-        // Spawn docker exec with PTY via script
-        const dockerCmd = `docker exec -it -e TERM=xterm-256color ${containerId} /bin/bash`;
-        const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
+        // Use node-pty or script fallback for proper PTY
+        const wrapper = spawnContainerShell(containerId, 120, 30);
 
-        if (!shell.pid) {
+        if (!wrapper.pid) {
           stream.write('\r\nError: Failed to start shell.\r\n');
           stream.close();
           client.end();
           return;
         }
 
-        // Set terminal size
-        setTimeout(() => {
-          shell.stdin.write('stty cols 120 rows 30 && clear\n');
-        }, 500);
-
         // Pipe: container → SSH client
-        shell.stdout.on('data', (data) => {
-          try { stream.write(data); } catch (_) {}
-        });
-        shell.stderr.on('data', (data) => {
+        wrapper.onData((data) => {
           try { stream.write(data); } catch (_) {}
         });
 
         // Pipe: SSH client → container
         stream.on('data', (data) => {
-          try { shell.stdin.write(data); } catch (_) {}
+          wrapper.write(data);
         });
 
         // Handle window resize from SSH client
         session.on('window-change', (accept, reject, info) => {
           if (accept) accept();
-          shell.stdin.write(`stty cols ${info.cols} rows ${info.rows}\n`);
+          wrapper.resize(info.cols, info.rows);
         });
 
         // Cleanup
-        shell.on('close', () => {
+        wrapper.onExit(() => {
           try { stream.close(); } catch (_) {}
           try { client.end(); } catch (_) {}
         });
 
         stream.on('close', () => {
-          try { shell.kill(); } catch (_) {}
+          wrapper.kill();
         });
 
         client.on('end', () => {
-          try { shell.kill(); } catch (_) {}
+          wrapper.kill();
         });
 
         db.logActivity(authenticatedUser.id, 'ssh_connected', `SSH session from ${authenticatedUser.username}`);
