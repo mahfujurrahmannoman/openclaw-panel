@@ -488,6 +488,11 @@ wss.on('connection', async (ws, request) => {
     cleanup(`Shell error: ${err.message}`);
   });
 
+  // Set initial PTY size — `script` inherits 0 cols from pipe, so we must set it via stty
+  setTimeout(() => {
+    if (!closed) shell.stdin.write('stty cols 120 rows 30 && clear\n');
+  }, 500);
+
   // Browser → container stdin
   ws.on('message', (msg) => {
     if (closed) return;
@@ -496,10 +501,12 @@ wss.on('connection', async (ws, request) => {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
         shell.stdin.write(parsed.data);
+      } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
+        // Resize PTY via stty command
+        shell.stdin.write(`stty cols ${parsed.cols} rows ${parsed.rows}\n`);
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
-      // Note: resize not supported via docker exec CLI — terminal uses initial size
     } catch {
       shell.stdin.write(msg.toString());
     }
