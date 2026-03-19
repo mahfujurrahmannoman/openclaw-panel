@@ -227,10 +227,8 @@ class EasypanelAPI {
   // Get container stats for a specific project
   async getUserStats(projectName) {
     const allStats = await this.getMonitorTableData();
-    if (!Array.isArray(allStats)) return null;
-    return allStats.filter(s =>
-      s.serviceName?.includes(projectName) || s.projectName === projectName
-    );
+    if (!Array.isArray(allStats)) return [];
+    return allStats.filter(s => s.projectName === projectName);
   }
 }
 

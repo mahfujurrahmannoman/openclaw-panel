@@ -412,14 +412,17 @@ function Dashboard({ addToast }) {
 
   // Parse new stats format: { containers, task }
   const containers = stats && stats.containers ? stats.containers : [];
-  const containerStat = containers.length > 0 ? containers[0] : null;
+  const containerStat = Array.isArray(containers) && containers.length > 0 ? containers[0] : null;
   const task = stats && stats.task ? stats.task : null;
 
-  const cpuPct = containerStat?.stats?.cpu?.percent ?? 0;
-  const memPct = containerStat?.stats?.memory?.percent ?? 0;
+  // Parse stats — handle both nested and flat formats from Easypanel API
+  const cpuRaw = containerStat?.stats?.cpu?.percent ?? containerStat?.cpuPercent ?? containerStat?.cpu ?? 0;
+  const cpuPct = typeof cpuRaw === 'string' ? parseFloat(cpuRaw) : cpuRaw;
+  const memRaw = containerStat?.stats?.memory?.percent ?? containerStat?.memoryPercent ?? containerStat?.memPercent ?? 0;
+  const memPct = typeof memRaw === 'string' ? parseFloat(memRaw) : memRaw;
   const memUsage = containerStat?.stats?.memory?.usage ?? 0;
-  const netIn = containerStat?.networkInput ?? 0;
-  const netOut = containerStat?.networkOutput ?? 0;
+  const netIn = containerStat?.stats?.network?.in ?? containerStat?.networkInput ?? 0;
+  const netOut = containerStat?.stats?.network?.out ?? containerStat?.networkOutput ?? 0;
 
   return (
     <div className="container">

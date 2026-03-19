@@ -552,17 +552,17 @@ function DashboardPage({ addToast }) {
 
   const cpuPct = system?.cpuInfo?.usedPercentage ?? 0;
   const ramPct = system?.memInfo?.usedMemPercentage ?? 0;
-  const totalMem = system?.memInfo?.totalMem ?? 0;
-  const usedMem = system?.memInfo?.usedMem ?? 0;
+  const totalMem = (system?.memInfo?.totalMemMb ?? 0) / 1024; // GB
+  const usedMem = (system?.memInfo?.usedMemMb ?? 0) / 1024; // GB
   const diskPct = parseFloat(system?.diskInfo?.usedPercentage ?? 0);
-  const totalDisk = system?.diskInfo?.totalDisk ?? 0;
-  const usedDisk = system?.diskInfo?.usedDisk ?? 0;
+  const totalDisk = parseFloat(system?.diskInfo?.totalGb ?? 0);
+  const usedDisk = parseFloat(system?.diskInfo?.usedGb ?? 0);
 
-  // Sum network from containers
+  // Sum network from containers (stats.network.in/out are bytes)
   let totalNetIn = 0, totalNetOut = 0;
   safeContainers.forEach(c => {
-    totalNetIn += (c.networkInput || 0);
-    totalNetOut += (c.networkOutput || 0);
+    totalNetIn += (c.stats?.network?.in ?? c.networkInput ?? 0);
+    totalNetOut += (c.stats?.network?.out ?? c.networkOutput ?? 0);
   });
 
   // Running containers count
@@ -701,8 +701,8 @@ function DashboardPage({ addToast }) {
                         <td className="mono" style={{ fontSize: 12 }}>{cpu.toFixed(2)}%</td>
                         <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(memBytes)}</td>
                         <td className="mono" style={{ fontSize: 12 }}>{memPctC.toFixed(1)}%</td>
-                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.networkInput || 0)}</td>
-                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.networkOutput || 0)}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.stats?.network?.in ?? 0)}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(c.stats?.network?.out ?? 0)}</td>
                       </tr>
                     );
                   })}
@@ -737,8 +737,8 @@ function DashboardPage({ addToast }) {
                     const cpu = uc?.stats?.cpu?.percent ?? 0;
                     const memBytes = uc?.stats?.memory?.usage ?? 0;
                     const memPct = uc?.stats?.memory?.percent ?? 0;
-                    const netIn = uc?.networkInput ?? 0;
-                    const netOut = uc?.networkOutput ?? 0;
+                    const netIn = uc?.stats?.network?.in ?? 0;
+                    const netOut = uc?.stats?.network?.out ?? 0;
                     return (
                       <tr key={u.id}>
                         <td>
