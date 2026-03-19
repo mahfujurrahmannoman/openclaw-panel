@@ -437,16 +437,9 @@ wss.on('connection', async (ws, request) => {
   // This bypasses dockerode's broken hijack mode in Swarm
   // Use `script` to force PTY allocation for docker exec.
   // Without a PTY, bash runs silently (no prompt, no color, no interactive features).
-  // `script -q /dev/null` creates a pseudo-terminal wrapper.
-  const shell = spawn('script', [
-    '-q', '/dev/null',
-    'docker', 'exec', '-it',
-    '-e', 'TERM=xterm-256color',
-    '-e', 'COLUMNS=120',
-    '-e', 'LINES=30',
-    containerId,
-    '/bin/bash',
-  ]);
+  // Alpine's script syntax: script -q -c "command" /dev/null
+  const dockerCmd = `docker exec -it -e TERM=xterm-256color -e COLUMNS=120 -e LINES=30 ${containerId} /bin/bash`;
+  const shell = spawn('script', ['-q', '-c', dockerCmd, '/dev/null']);
 
   if (!shell.pid) {
     ws.send(JSON.stringify({ type: 'error', data: 'Failed to start shell. Docker exec may not be available.' }));
