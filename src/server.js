@@ -601,7 +601,8 @@ wss.on('connection', async (ws, request) => {
 // Users authenticate with their panel username + password.
 // Auto-execs into their Docker container.
 
-const ssh2 = require('ssh2');
+let ssh2;
+try { ssh2 = require('ssh2'); } catch (e) { console.warn('ssh2 not available:', e.message); }
 const fs = require('fs');
 const crypto = require('crypto');
 
@@ -626,6 +627,8 @@ function getOrCreateHostKey() {
   }
 }
 
+if (!ssh2) { console.warn('SSH server disabled — ssh2 module not available'); }
+else try {
 const sshServer = new ssh2.Server({
   hostKeys: [getOrCreateHostKey()],
   banner: 'OpenClaw Hosting Panel - RarHost\r\n',
@@ -754,6 +757,7 @@ const sshServer = new ssh2.Server({
 sshServer.listen(SSH_PORT, '0.0.0.0', () => {
   console.log(`SSH Server running on port ${SSH_PORT}`);
 });
+} catch (sshErr) { console.error('SSH server failed to start:', sshErr.message); }
 
 // ==================== START ====================
 
