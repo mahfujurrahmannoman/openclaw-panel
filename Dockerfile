@@ -6,8 +6,8 @@ RUN apk add --no-cache python3 make g++ git docker-cli util-linux
 WORKDIR /app
 
 # Copy package files and install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci --production
+COPY package.json package-lock.json* ./
+RUN npm install --production --ignore-scripts=false
 
 # Copy application code
 COPY src/ ./src/
