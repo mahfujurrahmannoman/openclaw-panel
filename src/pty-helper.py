@@ -57,7 +57,6 @@ def main():
         os.close(slave_fd)
 
         # Make stdin non-blocking
-        import fcntl
         flags = fcntl.fcntl(sys.stdin.fileno(), fcntl.F_GETFL)
         fcntl.fcntl(sys.stdin.fileno(), fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
