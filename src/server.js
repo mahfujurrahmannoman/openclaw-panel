@@ -439,28 +439,23 @@ function attachStream(ws, exec, stream, projectName) {
   stream.on('end', () => {});
   stream.on('close', () => {});
 
-  // Receive input from browser
+  // Receive input from browser — NO error checking on write.
+  // Docker Swarm exec streams report false errors on write even when data goes through.
+  // Session only closes on: user disconnect or 1hr timeout. Never on write errors.
   ws.on('message', (msg) => {
     if (closed) return;
     lastActivity = Date.now();
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        if (!stream.writable) { cleanup('Connection to container lost.'); return; }
-        stream.write(parsed.data, (err) => {
-          if (err) cleanup('Connection to container lost.');
-        });
+        try { stream.write(parsed.data); } catch (_) {}
       } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
     } catch {
-      if (stream.writable) {
-        stream.write(msg.toString(), (err) => {
-          if (err) cleanup('Connection to container lost.');
-        });
-      }
+      try { stream.write(msg.toString()); } catch (_) {}
     }
   });
 
@@ -471,7 +466,7 @@ function attachStream(ws, exec, stream, projectName) {
     try { stream.destroy(); } catch (_) {}
   });
 
-  ws.on('error', () => { cleanup('WebSocket error.'); });
+  ws.on('error', () => {}); // Don't cleanup on ws error — let close handle it
 
   // Heartbeat every 8s to keep connection alive through Traefik/proxy
   const heartbeatInterval = setInterval(() => {
