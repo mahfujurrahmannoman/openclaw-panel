@@ -376,19 +376,49 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
+// Helper: find Docker Swarm container with retry (Swarm tasks can take a moment)
+async function findContainer(projectName, serviceName, retries = 3) {
+  const swarmServiceName = `${projectName}_${serviceName}`;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const containers = await docker.listContainers({
+        all: false,
+        filters: JSON.stringify({
+          label: [`com.docker.swarm.service.name=${swarmServiceName}`],
+          status: ['running'],
+        }),
+      });
+      if (containers.length > 0) return docker.getContainer(containers[0].Id);
+
+      // Fallback: match by name prefix (for non-Swarm or edge cases)
+      const allContainers = await docker.listContainers({ all: false });
+      const match = allContainers.find(c => {
+        const names = (c.Names || []).map(n => n.replace(/^\//, ''));
+        return names.some(n => n.startsWith(swarmServiceName));
+      });
+      if (match) return docker.getContainer(match.Id);
+    } catch (_) {}
+
+    // Wait before retry
+    if (attempt < retries - 1) await new Promise(r => setTimeout(r, 2000));
+  }
+  return null;
+}
+
 // Helper: wire up exec stream to WebSocket
 function attachStream(ws, exec, stream, projectName) {
   let closed = false;
   let lastActivity = Date.now();
   const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour session timeout
 
-  const cleanup = () => {
+  const cleanup = (reason) => {
     if (closed) return;
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
+    clearInterval(execCheckInterval);
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'exit', data: 'Session ended.' }));
+      ws.send(JSON.stringify({ type: 'exit', data: reason || 'Session ended.' }));
       ws.close();
     }
     try { stream.destroy(); } catch (_) {}
@@ -402,13 +432,9 @@ function attachStream(ws, exec, stream, projectName) {
     }
   });
 
-  // IMPORTANT: Do NOT listen for 'end' — it fires prematurely in Docker Swarm exec.
-  // Only close on 'close' event or explicit error.
-  stream.on('close', cleanup);
-  stream.on('error', (err) => {
-    if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // Ignore premature close
-    cleanup();
-  });
+  // DO NOT listen for stream 'end' or 'close' — they fire prematurely in Docker Swarm.
+  // Instead, we poll exec.inspect() to detect when the shell process actually exits.
+  stream.on('error', () => {}); // Suppress unhandled error events
 
   // Receive input from browser
   ws.on('message', (msg) => {
@@ -417,36 +443,50 @@ function attachStream(ws, exec, stream, projectName) {
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'input') {
-        stream.write(parsed.data);
+        try { stream.write(parsed.data); } catch (_) { cleanup('Connection to container lost.'); }
       } else if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
         exec.resize({ h: parsed.rows, w: parsed.cols }).catch(() => {});
       } else if (parsed.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
       }
-    } catch { stream.write(msg.toString()); }
+    } catch {
+      try { stream.write(msg.toString()); } catch (_) { cleanup('Connection to container lost.'); }
+    }
   });
 
   ws.on('close', () => {
     closed = true;
     clearInterval(heartbeatInterval);
     clearInterval(activityCheckInterval);
+    clearInterval(execCheckInterval);
     try { stream.destroy(); } catch (_) {}
   });
 
-  ws.on('error', () => {
-    cleanup();
-  });
+  ws.on('error', () => { cleanup('WebSocket error.'); });
 
-  // Heartbeat every 10s to keep connection alive through Traefik/proxy
+  // Heartbeat every 8s to keep connection alive through Traefik/proxy
   const heartbeatInterval = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'heartbeat', ts: Date.now() }));
-      // Also send a WebSocket ping frame for protocol-level keep-alive
       try { ws.ping(); } catch (_) {}
     } else {
       clearInterval(heartbeatInterval);
     }
-  }, 10000);
+  }, 8000);
+
+  // Poll exec.inspect() every 5s to detect when shell process actually exits
+  // This is the ONLY way we detect session end — not stream events
+  const execCheckInterval = setInterval(async () => {
+    try {
+      const info = await exec.inspect();
+      if (info.Running === false) {
+        cleanup('Shell process exited.');
+      }
+    } catch (_) {
+      // inspect failed — container may have been removed
+      cleanup('Container connection lost.');
+    }
+  }, 5000);
 
   // Check session timeout (1 hour of no activity)
   const activityCheckInterval = setInterval(() => {
@@ -454,7 +494,7 @@ function attachStream(ws, exec, stream, projectName) {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[33m[Session timed out after 1 hour of inactivity]\x1b[0m\r\n' }));
       }
-      cleanup();
+      cleanup('Session timed out.');
     }
   }, 60000);
 
@@ -469,29 +509,19 @@ wss.on('connection', async (ws, request) => {
     return;
   }
 
-  // Easypanel uses Docker Swarm — container names are:
-  // {projectName}_{serviceName}.1.{randomhash}
-  const namePrefix = `${user.project_name}_${user.service_name}`;
-  let container = null;
+  ws.send(JSON.stringify({ type: 'output', data: '\x1b[90mFinding your container...\x1b[0m\r\n' }));
 
+  let container;
   try {
-    const containers = await docker.listContainers({ all: false });
-    const match = containers.find(c => {
-      const names = (c.Names || []).map(n => n.replace(/^\//, ''));
-      if (names.some(n => n.startsWith(namePrefix))) return true;
-      if (c.Labels?.['com.docker.stack.namespace'] === user.project_name) return true;
-      if (c.Labels?.['com.docker.swarm.service.name'] === namePrefix) return true;
-      return false;
-    });
-
-    if (!match) {
-      ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying.` }));
-      ws.close();
-      return;
-    }
-    container = docker.getContainer(match.Id);
+    container = await findContainer(user.project_name, user.service_name || 'openclaw-gateway');
   } catch (err) {
-    ws.send(JSON.stringify({ type: 'error', data: `Docker connection failed: ${err.message}. Ensure the panel runs on the same server as Easypanel with Docker socket mounted.` }));
+    ws.send(JSON.stringify({ type: 'error', data: `Docker error: ${err.message}. Ensure the panel runs on the same server as Easypanel.` }));
+    ws.close();
+    return;
+  }
+
+  if (!container) {
+    ws.send(JSON.stringify({ type: 'error', data: `Container not found for ${user.project_name}. The service may be stopped or still deploying. Try again in a few seconds.` }));
     ws.close();
     return;
   }
@@ -505,7 +535,6 @@ wss.on('connection', async (ws, request) => {
         Tty: true, Env: ['TERM=xterm-256color', 'COLUMNS=120', 'LINES=30'],
       });
       const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-      // Set initial PTY size immediately after start
       await exec.resize({ h: 30, w: 120 }).catch(() => {});
       attachStream(ws, exec, stream, user.project_name);
       return;
