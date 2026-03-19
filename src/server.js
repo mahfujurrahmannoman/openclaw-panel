@@ -25,6 +25,23 @@ app.get('/api/setup/status', (req, res) => {
   res.json({ needsSetup: db.getAdminCount() === 0 });
 });
 
+// Diagnostic endpoint - check what terminal method is available
+app.get('/api/diag', async (req, res) => {
+  let ptyStatus = 'not loaded';
+  try { const p = require('node-pty'); ptyStatus = 'loaded OK - ' + typeof p.spawn; } catch (e) { ptyStatus = 'FAILED: ' + e.message; }
+  let dockerStatus = 'unknown';
+  try {
+    const { execSync } = require('child_process');
+    dockerStatus = execSync('docker ps --format "{{.Names}}" 2>&1').toString().trim().split('\n').length + ' containers';
+  } catch (e) { dockerStatus = 'FAILED: ' + e.message; }
+  let scriptStatus = 'unknown';
+  try {
+    const { execSync } = require('child_process');
+    scriptStatus = execSync('which script 2>&1').toString().trim();
+  } catch (e) { scriptStatus = 'not found'; }
+  res.json({ ptyStatus, dockerStatus, scriptStatus, nodeVersion: process.version });
+});
+
 app.post('/api/setup', (req, res) => {
   if (db.getAdminCount() > 0) {
     return res.status(400).json({ error: 'Admin already exists' });
