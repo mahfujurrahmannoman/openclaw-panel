@@ -390,6 +390,52 @@ app.post('/api/user/telegram', verifyToken, userOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// ===== User Profile Update (name + password only, NOT email) =====
+app.put('/api/user/profile', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const { username, currentPassword, newPassword } = req.body;
+  const results = [];
+
+  // Update username if provided
+  if (username && username !== user.username) {
+    if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(username)) {
+      return res.status(400).json({ error: 'Username must be 3-30 chars, lowercase letters, numbers, and hyphens only' });
+    }
+    const result = db.updateUserUsername(user.id, username);
+    if (result && result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    results.push('Username updated');
+  }
+
+  // Update password if provided
+  if (newPassword) {
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Current password is required to change password' });
+    }
+    // Verify current password
+    const verified = db.verifyUser(user.username, currentPassword);
+    if (!verified) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+    db.updateUserPassword(user.id, newPassword);
+    results.push('Password updated');
+  }
+
+  if (results.length === 0) {
+    return res.status(400).json({ error: 'No changes provided' });
+  }
+
+  db.logActivity(user.id, 'profile_updated', `User updated: ${results.join(', ')}`);
+  const updated = db.getUserById(user.id);
+  res.json({ success: true, message: results.join(', '), user: updated });
+});
+
 app.post('/api/user/apikey', verifyToken, userOnly, async (req, res) => {
   const user = db.getUserById(req.auth.id);
   if (!user) return res.status(404).json({ error: 'User not found' });

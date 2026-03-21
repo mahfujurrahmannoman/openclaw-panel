@@ -1043,6 +1043,137 @@ function SetupGuidePage({ addToast }) {
   );
 }
 
+// ===== Settings Page =====
+function SettingsPage({ addToast }) {
+  const [profile, setProfile] = useState(null);
+  const [username, setUsername] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savingPw, setSavingPw] = useState(false);
+
+  useEffect(() => {
+    api.get('/api/user/profile').then(p => {
+      setProfile(p);
+      setUsername(p.username || '');
+    }).catch(() => {});
+  }, []);
+
+  const handleUpdateName = async (e) => {
+    e.preventDefault();
+    if (!username || username === profile.username) return addToast('No changes to save', 'error');
+    setSaving(true);
+    try {
+      const res = await api.request('/api/user/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ username }),
+      });
+      addToast(res.message || 'Username updated!', 'success');
+      setProfile(prev => ({ ...prev, username }));
+    } catch (err) { addToast(err.message, 'error'); }
+    setSaving(false);
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword) return addToast('Fill in all password fields', 'error');
+    if (newPassword !== confirmPassword) return addToast('New passwords do not match', 'error');
+    if (newPassword.length < 6) return addToast('Password must be at least 6 characters', 'error');
+    setSavingPw(true);
+    try {
+      const res = await api.request('/api/user/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      addToast(res.message || 'Password updated!', 'success');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) { addToast(err.message, 'error'); }
+    setSavingPw(false);
+  };
+
+  if (!profile) return <div className="container" style={{ color: 'var(--text-dim)', paddingTop: 48 }}>Loading...</div>;
+
+  return (
+    <div className="container">
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 600 }}>Account Settings</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 4 }}>Manage your profile and security settings</p>
+      </div>
+
+      {/* Account Info (read-only) */}
+      <div className="card">
+        <h3>Account Information</h3>
+        <div className="info-row">
+          <span className="info-label">Email</span>
+          <span className="info-value">{profile.email}</span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Status</span>
+          <span className={`badge badge-${profile.status}`}>{profile.status}</span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Plan</span>
+          <span className="info-value" style={{ color: '#7c3aed', fontWeight: 600 }}>Unlimited</span>
+        </div>
+        <div className="info-row">
+          <span className="info-label">Member Since</span>
+          <span className="info-value">{new Date(profile.created_at).toLocaleDateString()}</span>
+        </div>
+        <div style={{ marginTop: 10, padding: '8px 12px', background: '#f4f4f5', borderRadius: 8, fontSize: 12, color: 'var(--text-dim)' }}>
+          Email cannot be changed. Contact admin if you need to update your email address.
+        </div>
+      </div>
+
+      {/* Change Username */}
+      <div className="card">
+        <h3>Change Username</h3>
+        <form onSubmit={handleUpdateName}>
+          <div className="form-group">
+            <label>Username</label>
+            <input value={username} onChange={e => setUsername(e.target.value.toLowerCase())} placeholder="your-username" />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+            3-30 characters. Lowercase letters, numbers, and hyphens only.
+          </div>
+          <button className="btn btn-primary" type="submit" disabled={saving || username === profile.username}>
+            {saving ? 'Saving...' : 'Update Username'}
+          </button>
+        </form>
+      </div>
+
+      {/* Change Password */}
+      <div className="card">
+        <h3>Change Password</h3>
+        <form onSubmit={handleUpdatePassword}>
+          <div className="form-group">
+            <label>Current Password</label>
+            <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Enter current password" />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>New Password</label>
+              <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" />
+            </div>
+            <div className="form-group">
+              <label>Confirm New Password</label>
+              <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Confirm new password" />
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Minimum 6 characters. This also changes your SSH login password.
+          </div>
+          <button className="btn btn-primary" type="submit" disabled={savingPw || !currentPassword || !newPassword}>
+            {savingPw ? 'Updating...' : 'Update Password'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ===== Main App =====
 function App() {
   const [loggedIn, setLoggedIn] = useState(!!api.token);
@@ -1068,7 +1199,7 @@ function App() {
     </>;
   }
 
-  const pages = { dashboard: Dashboard, console: ConsolePage, guide: SetupGuidePage };
+  const pages = { dashboard: Dashboard, console: ConsolePage, guide: SetupGuidePage, settings: SettingsPage };
   const PageComponent = pages[page];
 
   return (
@@ -1085,6 +1216,7 @@ function App() {
         <div className={`nav-tab ${page === 'dashboard' ? 'active' : ''}`} onClick={() => setPage('dashboard')}>Dashboard</div>
         <div className={`nav-tab ${page === 'console' ? 'active' : ''}`} onClick={() => setPage('console')}>Console</div>
         <div className={`nav-tab ${page === 'guide' ? 'active' : ''}`} onClick={() => setPage('guide')}>Setup Guide</div>
+        <div className={`nav-tab ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>Settings</div>
       </div>
       <PageComponent addToast={addToast} />
     </>

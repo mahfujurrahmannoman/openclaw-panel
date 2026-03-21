@@ -160,6 +160,18 @@ class PanelDatabase {
     return this.db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   }
 
+  updateUserPassword(id, newPassword) {
+    const hashed = bcrypt.hashSync(newPassword, 10);
+    return this.db.prepare('UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(hashed, id);
+  }
+
+  updateUserUsername(id, newUsername) {
+    // Check uniqueness first
+    const existing = this.db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(newUsername, id);
+    if (existing) return { error: 'Username already taken' };
+    return this.db.prepare('UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newUsername, id);
+  }
+
   deleteUser(id) {
     return this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
   }
