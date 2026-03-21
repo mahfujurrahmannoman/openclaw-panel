@@ -2,12 +2,55 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const PanelDatabase = require('./database');
 const EasypanelAPI = require('./easypanel');
 const { signToken, verifyToken, adminOnly, userOnly } = require('./middleware');
 
 const app = express();
-app.use(express.json());
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+      imgSrc: ["'self'", "data:", "blob:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Request body size limit (prevent DoS)
+app.use(express.json({ limit: '1mb' }));
+
+// Rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window
+  message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const setupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: 'Too many setup attempts. Try again later.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 120, // 120 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/', apiLimiter);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Initialize database
@@ -25,24 +68,7 @@ app.get('/api/setup/status', (req, res) => {
   res.json({ needsSetup: db.getAdminCount() === 0 });
 });
 
-// Diagnostic endpoint - check what terminal method is available
-app.get('/api/diag', async (req, res) => {
-  let ptyStatus = 'not loaded';
-  try { const p = require('node-pty'); ptyStatus = 'loaded OK - ' + typeof p.spawn; } catch (e) { ptyStatus = 'FAILED: ' + e.message; }
-  let dockerStatus = 'unknown';
-  try {
-    const { execSync } = require('child_process');
-    dockerStatus = execSync('docker ps --format "{{.Names}}" 2>&1').toString().trim().split('\n').length + ' containers';
-  } catch (e) { dockerStatus = 'FAILED: ' + e.message; }
-  let scriptStatus = 'unknown';
-  try {
-    const { execSync } = require('child_process');
-    scriptStatus = execSync('which script 2>&1').toString().trim();
-  } catch (e) { scriptStatus = 'not found'; }
-  res.json({ ptyStatus, dockerStatus, scriptStatus, nodeVersion: process.version });
-});
-
-app.post('/api/setup', (req, res) => {
+app.post('/api/setup', setupLimiter, (req, res) => {
   if (db.getAdminCount() > 0) {
     return res.status(400).json({ error: 'Admin already exists' });
   }
@@ -61,7 +87,7 @@ app.post('/api/setup', (req, res) => {
 
 // ==================== AUTH ====================
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', authLimiter, (req, res) => {
   const { email, password } = req.body;
   const admin = db.verifyAdmin(email, password);
   if (!admin) return res.status(401).json({ error: 'Invalid credentials' });
@@ -69,7 +95,7 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ token, admin: { id: admin.id, email: admin.email } });
 });
 
-app.post('/api/user/login', (req, res) => {
+app.post('/api/user/login', authLimiter, (req, res) => {
   const { email, password } = req.body;
   const user = db.verifyUser(email, password);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
@@ -124,6 +150,17 @@ app.post('/api/admin/users', verifyToken, adminOnly, async (req, res) => {
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'Username, email, and password required' });
   }
+  // Validate username: alphanumeric + hyphens only, 3-30 chars (used in Docker project names & domains)
+  if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(username)) {
+    return res.status(400).json({ error: 'Username must be 3-30 chars, lowercase letters, numbers, and hyphens only' });
+  }
+  // Validate email format
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
   if (db.getUserByUsername(username)) {
     return res.status(400).json({ error: 'Username already taken' });
   }
@@ -160,10 +197,19 @@ app.post('/api/admin/users', verifyToken, adminOnly, async (req, res) => {
 });
 
 app.put('/api/admin/users/:id', verifyToken, adminOnly, async (req, res) => {
-  const user = db.getUserById(req.params.id);
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid user ID' });
+  const user = db.getUserById(id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const fields = req.body;
+  // Only allow safe fields — never accept password, project_name, gateway_token from this endpoint
+  const { plan, status, notes, expires_at, email } = req.body;
+  const fields = {};
+  if (plan !== undefined) fields.plan = plan;
+  if (status !== undefined) fields.status = status;
+  if (notes !== undefined) fields.notes = String(notes).slice(0, 500);
+  if (expires_at !== undefined) fields.expires_at = expires_at;
+  if (email !== undefined) fields.email = email;
 
   // If plan changed, update Easypanel resource limits
   if (fields.plan && fields.plan !== user.plan) {
@@ -216,7 +262,9 @@ app.post('/api/admin/users/:id/activate', verifyToken, adminOnly, async (req, re
 });
 
 app.delete('/api/admin/users/:id', verifyToken, adminOnly, async (req, res) => {
-  const user = db.getUserById(req.params.id);
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid user ID' });
+  const user = db.getUserById(id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
     await easypanel.destroyProject(user.project_name);
@@ -348,8 +396,9 @@ app.post('/api/user/apikey', verifyToken, userOnly, async (req, res) => {
   const { provider, apiKey } = req.body;
   if (!provider || !apiKey) return res.status(400).json({ error: 'Provider and API key required' });
 
-  // Store provider in DB (key stored encrypted-ish, or just the provider name)
-  db.updateUser(user.id, { api_key_provider: provider, api_key_encrypted: apiKey });
+  // Store provider and encrypt the API key before saving
+  const encryptedKey = encryptApiKey(apiKey);
+  db.updateUser(user.id, { api_key_provider: provider, api_key_encrypted: encryptedKey });
 
   // Update Easypanel env vars to include the API key
   try {
@@ -409,6 +458,34 @@ const server = http.createServer(app);
 // Docker connection - works when panel runs on the same server as Easypanel
 const docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' });
 
+// API key encryption helpers
+function encryptApiKey(text) {
+  const algorithm = 'aes-256-gcm';
+  const key = crypto.scryptSync(process.env.JWT_SECRET || 'default-secret', 'salt', 32);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+function decryptApiKey(encrypted) {
+  try {
+    const [ivHex, tagHex, data] = encrypted.split(':');
+    if (!ivHex || !tagHex || !data) return encrypted; // fallback for old plaintext keys
+    const algorithm = 'aes-256-gcm';
+    const key = crypto.scryptSync(process.env.JWT_SECRET || 'default-secret', 'salt', 32);
+    const decipher = crypto.createDecipheriv(algorithm, key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    let decrypted = decipher.update(data, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch {
+    return encrypted; // fallback for old plaintext keys
+  }
+}
+
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
@@ -429,7 +506,7 @@ server.on('upgrade', (request, socket, head) => {
   // Verify JWT
   const jwt = require('jsonwebtoken');
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-change-me');
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (payload.role !== 'user' && payload.role !== 'admin') {
       socket.destroy();
       return;
@@ -686,18 +763,19 @@ const sshServer = new ssh2.Server({
 }, (client) => {
   let authenticatedUser = null;
 
+  let authAttempts = 0;
   client.on('authentication', (ctx) => {
     if (ctx.method === 'password') {
-      const user = db.verifyUser(ctx.username, ctx.password);
-      if (user) {
-        authenticatedUser = user;
-        ctx.accept();
+      authAttempts++;
+      if (authAttempts > 5) {
+        ctx.reject(['password']);
+        client.end();
         return;
       }
-      // Also try email as username
-      const userByEmail = db.verifyUser(ctx.username, ctx.password);
-      if (userByEmail) {
-        authenticatedUser = userByEmail;
+      // verifyUser already checks both username and email
+      const user = db.verifyUser(ctx.username, ctx.password);
+      if (user && user.status !== 'suspended') {
+        authenticatedUser = user;
         ctx.accept();
         return;
       }

@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = () => process.env.JWT_SECRET || 'default-secret-change-me';
+const JWT_SECRET = () => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  return process.env.JWT_SECRET;
+};
 
 // Generate JWT token
 function signToken(payload, expiresIn = '24h') {

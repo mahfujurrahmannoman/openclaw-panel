@@ -123,22 +123,23 @@ class PanelDatabase {
   getUserById(id) {
     const user = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     if (!user) return null;
-    const { password: _, ...safe } = user;
+    const { password: _, api_key_encrypted: __, ...safe } = user;
     return safe;
   }
 
   getUserByUsername(username) {
     const user = this.db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     if (!user) return null;
-    const { password: _, ...safe } = user;
+    const { password: _, api_key_encrypted: __, ...safe } = user;
     return safe;
   }
 
   getAllUsers() {
-    return this.db.prepare('SELECT id, username, email, project_name, service_name, domain, openclaw_url, status, plan, cpu_limit, memory_limit, expires_at, telegram_bot_token, telegram_chat_id, api_key_provider, notes, created_at, updated_at FROM users ORDER BY created_at DESC').all();
+    return this.db.prepare('SELECT id, username, email, project_name, service_name, domain, openclaw_url, status, plan, cpu_limit, memory_limit, expires_at, api_key_provider, notes, created_at, updated_at FROM users ORDER BY created_at DESC').all();
   }
 
   updateUser(id, fields) {
+    // SECURITY: 'password' is intentionally excluded — never allow password update via generic update
     const allowed = [
       'email', 'plan', 'cpu_limit', 'memory_limit', 'expires_at',
       'status', 'notes', 'telegram_bot_token', 'telegram_chat_id',
