@@ -343,6 +343,155 @@ app.get('/api/admin/activity', verifyToken, adminOnly, (req, res) => {
   res.json(db.getRecentActivity(100));
 });
 
+// ==================== EXTERNAL API (WHMCS / Billing) ====================
+// Uses API key from EXTERNAL_API_KEY env var — no JWT needed
+
+const externalApiAuth = (req, res, next) => {
+  const apiKey = process.env.EXTERNAL_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'External API not configured' });
+  const provided = req.headers['x-api-key'] || req.query.api_key;
+  if (!provided || provided !== apiKey) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  next();
+};
+
+const externalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many requests' },
+});
+
+// Create/Provision user — called by WHMCS on order activation
+app.post('/api/external/provision', externalLimiter, externalApiAuth, async (req, res) => {
+  const { username, email, password, notes, expires_at } = req.body;
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'username, email, and password required' });
+  }
+  if (!/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(username)) {
+    return res.status(400).json({ error: 'Username must be 3-30 chars, lowercase alphanumeric + hyphens' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  if (db.getUserByUsername(username)) {
+    return res.status(409).json({ error: 'Username already exists' });
+  }
+
+  const planData = db.getPlanByName('unlimited');
+  try {
+    const deployment = await easypanel.deployOpenClawInstance(username, {
+      cpuLimit: planData?.cpu_limit || 4,
+      memoryLimit: planData?.memory_limit || 4096,
+    });
+
+    db.createUser({
+      username, email, password,
+      project_name: deployment.projectName,
+      service_name: deployment.serviceName,
+      domain: deployment.domain,
+      gateway_token: deployment.gatewayToken,
+      openclaw_url: deployment.url,
+      plan: 'unlimited',
+      cpu_limit: planData?.cpu_limit || 4,
+      memory_limit: planData?.memory_limit || 4096,
+      expires_at: expires_at || null,
+      notes: notes || null,
+    });
+
+    const user = db.getUserByUsername(username);
+    db.logActivity(user.id, 'user_created', `User ${username} provisioned via WHMCS`);
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        domain: user.domain,
+        openclaw_url: user.openclaw_url,
+        gateway_token: user.gateway_token,
+        status: user.status,
+      },
+      panel_url: `https://${req.headers.host}/panel`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Deployment failed: ${err.message}` });
+  }
+});
+
+// Suspend user — called by WHMCS on suspend
+app.post('/api/external/suspend', externalLimiter, externalApiAuth, async (req, res) => {
+  const { username, email } = req.body;
+  const user = username ? db.getUserByUsername(username) : null;
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    await easypanel.disableService(user.project_name, user.service_name);
+    db.suspendUser(user.id);
+    db.logActivity(user.id, 'user_suspended', `User ${user.username} suspended via WHMCS`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Unsuspend user — called by WHMCS on unsuspend
+app.post('/api/external/unsuspend', externalLimiter, externalApiAuth, async (req, res) => {
+  const { username, email } = req.body;
+  const user = username ? db.getUserByUsername(username) : null;
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    await easypanel.enableService(user.project_name, user.service_name);
+    await easypanel.deployService(user.project_name, user.service_name);
+    db.activateUser(user.id);
+    db.logActivity(user.id, 'user_activated', `User ${user.username} unsuspended via WHMCS`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Terminate user — called by WHMCS on terminate
+app.post('/api/external/terminate', externalLimiter, externalApiAuth, async (req, res) => {
+  const { username, email } = req.body;
+  const user = username ? db.getUserByUsername(username) : null;
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    await easypanel.destroyProject(user.project_name);
+  } catch (_) {}
+  db.logActivity(user.id, 'user_deleted', `User ${user.username} terminated via WHMCS`);
+  db.deleteUser(user.id);
+  res.json({ success: true });
+});
+
+// Get user info — WHMCS can check user status
+app.get('/api/external/user/:username', externalLimiter, externalApiAuth, (req, res) => {
+  const user = db.getUserByUsername(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    domain: user.domain,
+    openclaw_url: user.openclaw_url,
+    status: user.status,
+    plan: user.plan,
+    created_at: user.created_at,
+  });
+});
+
+// Change password — WHMCS password sync
+app.post('/api/external/change-password', externalLimiter, externalApiAuth, (req, res) => {
+  const { username, new_password } = req.body;
+  const user = username ? db.getUserByUsername(username) : null;
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!new_password || new_password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  db.updateUserPassword(user.id, new_password);
+  res.json({ success: true });
+});
+
 // ==================== USER ROUTES ====================
 
 app.get('/api/user/profile', verifyToken, userOnly, (req, res) => {
