@@ -69,10 +69,10 @@ class BackupService {
     const s3Key = `backups/${user.username}/${filename}`;
 
     try {
-      // Step 1: Create tar.gz inside the container
+      // Step 1: Check if .openclaw exists and create tar.gz
       console.log(`[Backup] Creating archive in container ${container}...`);
       execSync(
-        `docker exec ${container} tar czf /tmp/backup.tar.gz -C /home/node .openclaw 2>/dev/null`,
+        `docker exec ${container} sh -c "test -d /home/node/.openclaw && tar czf /tmp/backup.tar.gz -C /home/node .openclaw || (mkdir -p /home/node/.openclaw && tar czf /tmp/backup.tar.gz -C /home/node .openclaw)"`,
         { timeout: 120000 }
       );
 
@@ -153,59 +153,27 @@ class BackupService {
       }
       fs.writeFileSync(localPath, Buffer.concat(chunks));
 
-      // Step 2: Stop the service first (releases volume locks)
-      console.log(`[Backup] Stopping service for restore...`);
-      try {
-        await this.easypanel.disableService(user.project_name, serviceName);
-        // Wait for container to fully stop
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      } catch (e) {
-        console.error('[Backup] Service stop warning:', e.message);
-      }
+      // Step 2: Find the running container and copy backup into it
+      const container = this.findContainer(user);
+      if (!container) throw new Error('Container not found. Service may not be running.');
 
-      // Step 3: Use a temporary container to restore into the volume
-      // Find the Docker volume names for this project
-      console.log(`[Backup] Restoring backup via temp container...`);
-      const swarmName = `${user.project_name}_${serviceName}`;
+      console.log(`[Backup] Copying backup into container...`);
+      execSync(`docker cp ${localPath} ${container}:/tmp/backup.tar.gz`, { timeout: 60000 });
 
-      // Copy backup to a known location on host
-      const hostBackupPath = `/tmp/restore-${user.username}.tar.gz`;
-      execSync(`cp ${localPath} ${hostBackupPath}`, { timeout: 30000 });
+      // Step 3: Extract backup OVER existing data (without deleting mounted dirs)
+      // Use --overwrite and extract on top of existing directory to avoid "device busy" errors
+      console.log(`[Backup] Extracting backup over existing data...`);
+      execSync(
+        `docker exec ${container} sh -c "cd /home/node && tar xzf /tmp/backup.tar.gz --overwrite && rm -f /tmp/backup.tar.gz && chown -R node:node /home/node/.openclaw"`,
+        { timeout: 120000 }
+      );
 
-      // Run a temp alpine container mounting the same volumes to extract backup
-      // This works because the volumes persist even when the service is stopped
-      try {
-        execSync(
-          `docker run --rm ` +
-          `-v ${swarmName}_config:/restore/config ` +
-          `-v ${hostBackupPath}:/tmp/backup.tar.gz ` +
-          `alpine sh -c "rm -rf /restore/config/* && cd /restore && tar xzf /tmp/backup.tar.gz && ` +
-          `cp -a .openclaw/* config/ 2>/dev/null; cp -a .openclaw/.* config/ 2>/dev/null; ` +
-          `rm -rf .openclaw && chown -R 1000:1000 /restore/config"`,
-          { timeout: 120000 }
-        );
-      } catch (e) {
-        // Fallback: try with project-level volume naming
-        console.log('[Backup] Trying alternate volume name pattern...');
-        execSync(
-          `docker run --rm ` +
-          `-v ${user.project_name}_config:/restore/config ` +
-          `-v ${hostBackupPath}:/tmp/backup.tar.gz ` +
-          `alpine sh -c "rm -rf /restore/config/* && cd /restore && tar xzf /tmp/backup.tar.gz && ` +
-          `cp -a .openclaw/* config/ 2>/dev/null; cp -a .openclaw/.* config/ 2>/dev/null; ` +
-          `rm -rf .openclaw && chown -R 1000:1000 /restore/config"`,
-          { timeout: 120000 }
-        );
-      }
-
-      // Step 4: Clean up
+      // Step 4: Clean up local file
       try { fs.unlinkSync(localPath); } catch (_) {}
-      try { fs.unlinkSync(hostBackupPath); } catch (_) {}
 
-      // Step 5: Re-enable and restart the service
+      // Step 5: Restart the service to pick up restored config
       console.log(`[Backup] Restarting service...`);
       try {
-        await this.easypanel.enableService(user.project_name, serviceName);
         await this.easypanel.deployService(user.project_name, serviceName);
       } catch (e) {
         console.error('[Backup] Service restart failed:', e.message);
@@ -214,12 +182,11 @@ class BackupService {
       console.log(`[Backup] Restore completed for ${user.username}`);
       return { success: true };
     } catch (err) {
-      // Try to re-enable service even if restore fails
+      // Clean up and try to restart service on failure
+      try { fs.unlinkSync(localPath); } catch (_) {}
       try {
-        await this.easypanel.enableService(user.project_name, serviceName);
         await this.easypanel.deployService(user.project_name, serviceName);
       } catch (_) {}
-      try { fs.unlinkSync(localPath); } catch (_) {}
       throw err;
     }
   }
