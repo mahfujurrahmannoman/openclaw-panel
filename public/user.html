@@ -353,6 +353,10 @@ function Dashboard({ addToast }) {
   const [apiKeyVal, setApiKeyVal] = useState('');
   const [apiSaving, setApiSaving] = useState(false);
 
+  // Version info
+  const [versionInfo, setVersionInfo] = useState(null);
+  const [updating, setUpdating] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const p = await api.get('/api/user/profile');
@@ -362,6 +366,7 @@ function Dashboard({ addToast }) {
       setApiProvider(p.api_key_provider || 'deepseek');
     } catch (err) { addToast(err.message, 'error'); }
     try { setStats(await api.get('/api/user/stats')); } catch (_) {}
+    try { setVersionInfo(await api.get('/api/user/version')); } catch (_) {}
     setLastUpdated(new Date());
   }, []);
 
@@ -387,6 +392,22 @@ function Dashboard({ addToast }) {
       addToast('Telegram settings saved', 'success');
     } catch (err) { addToast(err.message, 'error'); }
     setTgSaving(false);
+  };
+
+  const handleUpdate = async () => {
+    setUpdating(true);
+    try {
+      const res = await api.post('/api/user/update');
+      addToast(res.message || 'Update started! Service restarting...', 'success');
+      // Refresh version info after a delay
+      setTimeout(async () => {
+        try { setVersionInfo(await api.get('/api/user/version')); } catch (_) {}
+        setUpdating(false);
+      }, 15000);
+    } catch (err) {
+      addToast(err.message, 'error');
+      setUpdating(false);
+    }
   };
 
   const handleApiKey = async () => {
@@ -526,6 +547,45 @@ function Dashboard({ addToast }) {
             </a>
             <button className="btn" onClick={loadLogs} style={{ justifyContent: 'center' }}>View Logs</button>
           </div>
+        </div>
+
+        {/* Version Card */}
+        <div className="card" style={{ marginBottom: 0 }}>
+          <h3>OpenClaw Version</h3>
+          {versionInfo ? (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>Current Version</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text)' }}>{versionInfo.current}</div>
+                </div>
+                {!versionInfo.updateAvailable ? (
+                  <span className="badge badge-active" style={{ fontSize: 12, padding: '4px 12px' }}>Up to date</span>
+                ) : (
+                  <span className="badge" style={{ background: '#f3e8ff', color: '#7c3aed', fontSize: 12, padding: '4px 12px' }}>Update available</span>
+                )}
+              </div>
+              {versionInfo.updateAvailable && (
+                <div style={{ background: '#eef2ff', borderRadius: 8, padding: 12, marginBottom: 12, border: '1px solid rgba(99,102,241,.2)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600, marginBottom: 4 }}>New version: {versionInfo.latest}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Update will restart your service. Takes about 1-2 minutes.</div>
+                </div>
+              )}
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', opacity: versionInfo.updateAvailable ? 1 : 0.5 }}
+                onClick={handleUpdate}
+                disabled={updating || !versionInfo.updateAvailable}
+              >
+                {updating ? 'Updating...' : versionInfo.updateAvailable ? `Update to ${versionInfo.latest}` : 'Already on latest'}
+              </button>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+                Latest: {versionInfo.latest}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>Loading version info...</div>
+          )}
         </div>
 
         {/* OpenClaw Dashboard Card — full width */}

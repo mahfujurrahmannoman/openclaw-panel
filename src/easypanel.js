@@ -155,6 +155,64 @@ class EasypanelAPI {
     return this.get('settings.getServerIp');
   }
 
+  // --- Version Management ---
+  async getRunningImageTag(projectName, serviceName) {
+    try {
+      const info = await this.inspectService(projectName, serviceName);
+      const image = info?.image || info?.source?.image || '';
+      const match = image.match(/:([^:]+)$/);
+      return match ? match[1] : image || 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  async getLatestOpenClawVersion() {
+    // Cache for 1 hour
+    if (this._versionCache && Date.now() - this._versionCacheTime < 3600000) {
+      return this._versionCache;
+    }
+    try {
+      // Fetch tags from GHCR
+      const https = require('https');
+      const data = await new Promise((resolve, reject) => {
+        https.get('https://ghcr.io/v2/openclaw/openclaw/tags/list', {
+          headers: { 'Accept': 'application/json' },
+          timeout: 10000,
+        }, (res) => {
+          let body = '';
+          res.on('data', c => body += c);
+          res.on('end', () => {
+            try { resolve(JSON.parse(body)); } catch { reject(new Error('Parse error')); }
+          });
+        }).on('error', reject);
+      });
+
+      if (data.tags && data.tags.length > 0) {
+        // Filter semver-like tags, sort descending
+        const semverTags = data.tags
+          .filter(t => /^\d+\.\d+/.test(t))
+          .sort((a, b) => {
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+              if ((pb[i] || 0) !== (pa[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
+            }
+            return 0;
+          });
+        const latest = semverTags[0] || data.tags[data.tags.length - 1];
+        this._versionCache = latest;
+        this._versionCacheTime = Date.now();
+        return latest;
+      }
+    } catch (e) {
+      console.error('[Version] Failed to fetch latest version:', e.message);
+    }
+    // Fallback: return current env image tag
+    const fallback = (process.env.OPENCLAW_IMAGE || 'ghcr.io/openclaw/openclaw:2026.2.3').split(':').pop();
+    return fallback;
+  }
+
   // --- High-level: Deploy an OpenClaw instance ---
   async deployOpenClawInstance(username, config = {}) {
     const projectName = `oc-${username}`;

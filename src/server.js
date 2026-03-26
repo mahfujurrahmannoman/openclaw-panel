@@ -598,6 +598,39 @@ app.put('/api/user/profile', verifyToken, userOnly, async (req, res) => {
   res.json({ success: true, message: results.join(', '), user: updated });
 });
 
+// ===== Version Check & Update =====
+app.get('/api/user/version', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const serviceName = user.service_name || 'openclaw-gateway';
+    const [current, latest] = await Promise.all([
+      easypanel.getRunningImageTag(user.project_name, serviceName),
+      easypanel.getLatestOpenClawVersion(),
+    ]);
+    const updateAvailable = current !== latest && current !== 'unknown';
+    res.json({ current, latest, updateAvailable });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/user/update', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const serviceName = user.service_name || 'openclaw-gateway';
+    const latest = await easypanel.getLatestOpenClawVersion();
+    const newImage = `ghcr.io/openclaw/openclaw:${latest}`;
+    await easypanel.updateSourceImage(user.project_name, serviceName, newImage);
+    await easypanel.deployService(user.project_name, serviceName);
+    db.logActivity(user.id, 'version_updated', `Updated OpenClaw to ${latest}`);
+    res.json({ success: true, version: latest, message: `Updating to ${latest}. Service is restarting...` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/user/apikey', verifyToken, userOnly, async (req, res) => {
   const user = db.getUserById(req.auth.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
