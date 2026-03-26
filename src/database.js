@@ -36,7 +36,7 @@ class PanelDatabase {
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
+        email TEXT NOT NULL,
         password TEXT NOT NULL,
         project_name TEXT,
         service_name TEXT DEFAULT 'openclaw-gateway',
@@ -66,6 +66,41 @@ class PanelDatabase {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
       );
     `);
+
+    // Migration: Remove UNIQUE constraint on email (allow same email, multiple services)
+    try {
+      const tableInfo = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+      if (tableInfo && tableInfo.sql && tableInfo.sql.includes('email TEXT UNIQUE')) {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL,
+            password TEXT NOT NULL,
+            project_name TEXT,
+            service_name TEXT DEFAULT 'openclaw-gateway',
+            domain TEXT,
+            gateway_token TEXT,
+            openclaw_url TEXT,
+            status TEXT DEFAULT 'active' CHECK(status IN ('active','suspended')),
+            plan TEXT DEFAULT 'unlimited',
+            cpu_limit REAL DEFAULT 4,
+            memory_limit INTEGER DEFAULT 4096,
+            expires_at DATETIME,
+            telegram_bot_token TEXT,
+            telegram_chat_id TEXT,
+            api_key_provider TEXT,
+            api_key_encrypted TEXT,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          INSERT INTO users_new SELECT * FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+        `);
+      }
+    } catch (e) { /* migration already done or no data */ }
 
     // Seed default plan if empty
     const planCount = this.db.prepare('SELECT COUNT(*) as cnt FROM plans').get();
