@@ -233,8 +233,8 @@ function LoginPage({ onLogin, addToast }) {
         <p>Sign in to your hosting panel</p>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+            <label>Email or Username</label>
+            <input type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com or username" required />
           </div>
           <div className="form-group">
             <label>Password</label>
