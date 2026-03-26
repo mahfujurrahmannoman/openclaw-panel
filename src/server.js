@@ -495,6 +495,11 @@ app.post('/api/external/change-password', externalLimiter, externalApiAuth, (req
   res.json({ success: true });
 });
 
+// Test connection — called by WHMCS to verify server config
+app.get('/api/external/testconnection', externalLimiter, externalApiAuth, (req, res) => {
+  res.json({ success: true, message: 'OpenClaw Panel API connected', version: '1.0.0' });
+});
+
 // ==================== USER ROUTES ====================
 
 app.get('/api/user/profile', verifyToken, userOnly, (req, res) => {
