@@ -10,6 +10,9 @@ const { signToken, verifyToken, adminOnly, userOnly } = require('./middleware');
 
 const app = express();
 
+// Trust proxy (behind Traefik/Easypanel reverse proxy)
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: {
