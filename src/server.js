@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const PanelDatabase = require('./database');
 const EasypanelAPI = require('./easypanel');
+const BackupService = require('./backup');
 const { signToken, verifyToken, adminOnly, userOnly } = require('./middleware');
 
 const app = express();
@@ -64,6 +65,10 @@ const easypanel = new EasypanelAPI(
   process.env.EASYPANEL_URL || 'https://panel.rarhost.store',
   process.env.EASYPANEL_TOKEN || ''
 );
+
+// Initialize Backup Service
+const backupService = new BackupService(db, easypanel);
+backupService.startAutoCron();
 
 // ==================== SETUP ====================
 
@@ -635,6 +640,94 @@ app.get('/api/user/logs', verifyToken, userOnly, async (req, res) => {
   try {
     const logs = await easypanel.getServiceLogs(user.project_name, user.service_name);
     res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== USER BACKUP ROUTES ====================
+
+app.get('/api/user/backups', verifyToken, userOnly, (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const backups = db.getBackupsByUser(user.id);
+  res.json({ backups, auto_backup: user.auto_backup || 0 });
+});
+
+app.post('/api/user/backups', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const result = await backupService.createBackup(user, 'manual');
+    db.logActivity(user.id, 'backup_created', `Manual backup: ${result.filename}`);
+    res.json({ success: true, backup: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/user/backups/:id/restore', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid backup ID' });
+  try {
+    await backupService.restoreBackup(user, id);
+    db.logActivity(user.id, 'backup_restored', `Restored backup #${id}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/user/backups/:id', verifyToken, userOnly, async (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const id = parseInt(req.params.id, 10);
+  const backup = db.getBackupById(id);
+  if (!backup || backup.user_id !== user.id) return res.status(404).json({ error: 'Backup not found' });
+  try {
+    await backupService.deleteBackup(id);
+    db.logActivity(user.id, 'backup_deleted', `Deleted backup: ${backup.filename}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/user/backups/auto', verifyToken, userOnly, (req, res) => {
+  const user = db.getUserById(req.auth.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const { enabled } = req.body;
+  db.updateUser(user.id, { auto_backup: enabled ? 1 : 0 });
+  db.logActivity(user.id, 'auto_backup_toggled', `Auto-backup ${enabled ? 'enabled' : 'disabled'}`);
+  res.json({ success: true, auto_backup: enabled ? 1 : 0 });
+});
+
+// ==================== ADMIN BACKUP ROUTES ====================
+
+app.get('/api/admin/backups', verifyToken, adminOnly, (req, res) => {
+  res.json(db.getAllBackups());
+});
+
+app.post('/api/admin/backups/:userId', verifyToken, adminOnly, async (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+  const user = db.getUserById(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const result = await backupService.createBackup(user, 'manual');
+    db.logActivity(user.id, 'backup_created', `Admin backup: ${result.filename}`);
+    res.json({ success: true, backup: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/backups/:id', verifyToken, adminOnly, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    await backupService.deleteBackup(id);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

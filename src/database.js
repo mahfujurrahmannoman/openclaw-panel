@@ -102,6 +102,28 @@ class PanelDatabase {
       }
     } catch (e) { /* migration already done or no data */ }
 
+    // Backups table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS backups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        s3_key TEXT NOT NULL,
+        size_bytes INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'completed',
+        type TEXT DEFAULT 'manual',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Migration: add auto_backup column to users
+    try {
+      this.db.prepare("SELECT auto_backup FROM users LIMIT 1").get();
+    } catch (e) {
+      this.db.exec("ALTER TABLE users ADD COLUMN auto_backup INTEGER DEFAULT 0");
+    }
+
     // Seed default plan if empty
     const planCount = this.db.prepare('SELECT COUNT(*) as cnt FROM plans').get();
     if (planCount.cnt === 0) {
@@ -179,7 +201,7 @@ class PanelDatabase {
       'email', 'plan', 'cpu_limit', 'memory_limit', 'expires_at',
       'status', 'notes', 'telegram_bot_token', 'telegram_chat_id',
       'api_key_provider', 'api_key_encrypted', 'domain', 'gateway_token',
-      'openclaw_url', 'project_name', 'service_name',
+      'openclaw_url', 'project_name', 'service_name', 'auto_backup',
     ];
     const updates = [];
     const values = [];
@@ -254,6 +276,43 @@ class PanelDatabase {
     const planDist = {};
     plans.forEach(p => { planDist[p.plan] = p.cnt; });
     return { total, active, suspended, planDistribution: planDist };
+  }
+
+  // --- Backups ---
+  createBackupRecord(data) {
+    return this.db.prepare(
+      'INSERT INTO backups (user_id, username, filename, s3_key, size_bytes, status, type) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(data.user_id, data.username, data.filename, data.s3_key, data.size_bytes || 0, data.status || 'completed', data.type || 'manual');
+  }
+
+  getBackupsByUser(userId) {
+    return this.db.prepare('SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+  }
+
+  getBackupById(id) {
+    return this.db.prepare('SELECT * FROM backups WHERE id = ?').get(id);
+  }
+
+  deleteBackupRecord(id) {
+    return this.db.prepare('DELETE FROM backups WHERE id = ?').run(id);
+  }
+
+  getAllBackups() {
+    return this.db.prepare('SELECT * FROM backups ORDER BY created_at DESC').all();
+  }
+
+  getUsersWithAutoBackup() {
+    return this.db.prepare("SELECT * FROM users WHERE auto_backup = 1 AND status = 'active'").all();
+  }
+
+  getLatestBackup(userId) {
+    return this.db.prepare('SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(userId);
+  }
+
+  getOldBackups(userId, keepCount) {
+    return this.db.prepare(
+      'SELECT * FROM backups WHERE user_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET ?'
+    ).all(userId, keepCount);
   }
 
   close() {

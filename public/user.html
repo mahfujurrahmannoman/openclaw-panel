@@ -1043,6 +1043,193 @@ function SetupGuidePage({ addToast }) {
   );
 }
 
+// ===== Backups Page =====
+function BackupsPage({ addToast }) {
+  const [backups, setBackups] = useState([]);
+  const [autoBackup, setAutoBackup] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [restoring, setRestoring] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const [confirmRestore, setConfirmRestore] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api.get('/api/user/backups');
+      setBackups(data.backups || []);
+      setAutoBackup(data.auto_backup === 1);
+    } catch (err) { addToast(err.message, 'error'); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      await api.post('/api/user/backups');
+      addToast('Backup created successfully!', 'success');
+      load();
+    } catch (err) { addToast(err.message, 'error'); }
+    setCreating(false);
+  };
+
+  const handleRestore = async (id) => {
+    setRestoring(id);
+    setConfirmRestore(null);
+    try {
+      await api.post(`/api/user/backups/${id}/restore`);
+      addToast('Backup restored! Service restarting...', 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+    setRestoring(null);
+  };
+
+  const handleDelete = async (id) => {
+    setDeleting(id);
+    try {
+      await api.request(`/api/user/backups/${id}`, { method: 'DELETE' });
+      addToast('Backup deleted', 'success');
+      load();
+    } catch (err) { addToast(err.message, 'error'); }
+    setDeleting(null);
+  };
+
+  const handleToggleAuto = async () => {
+    const newVal = !autoBackup;
+    try {
+      await api.request('/api/user/backups/auto', { method: 'PUT', body: JSON.stringify({ enabled: newVal }) });
+      setAutoBackup(newVal);
+      addToast(`Auto-backup ${newVal ? 'enabled' : 'disabled'}`, 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+
+  const fmtSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+  };
+
+  const fmtDate = (d) => new Date(d).toLocaleString();
+  const totalSize = backups.reduce((s, b) => s + (b.size_bytes || 0), 0);
+
+  if (loading) return <div className="container" style={{ color: 'var(--text-dim)', paddingTop: 48 }}>Loading backups...</div>;
+
+  return (
+    <div className="container">
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 600 }}>Backups</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 4 }}>Backup and restore your OpenClaw data (configs, conversations, channels)</p>
+      </div>
+
+      {/* Actions Bar */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button className="btn btn-primary" onClick={handleCreate} disabled={creating} style={{ minWidth: 140 }}>
+              {creating ? 'Creating...' : 'Create Backup'}
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              {backups.length} backup{backups.length !== 1 ? 's' : ''} | {fmtSize(totalSize)} used
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>Auto-Backup (Daily)</span>
+            <div onClick={handleToggleAuto} style={{
+              width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background .2s',
+              background: autoBackup ? 'var(--accent)' : '#d4d4d8', position: 'relative',
+            }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: 10, background: '#fff', position: 'absolute',
+                top: 2, left: autoBackup ? 22 : 2, transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+              }} />
+            </div>
+          </div>
+        </div>
+        {autoBackup && (
+          <div style={{ marginTop: 10, padding: '8px 12px', background: '#eef2ff', borderRadius: 8, fontSize: 12, color: 'var(--accent)' }}>
+            Auto-backup runs daily. Keeps last 7 backups, older ones are automatically deleted.
+          </div>
+        )}
+      </div>
+
+      {/* Confirm Restore Modal */}
+      {confirmRestore && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
+          <div className="card" style={{ maxWidth: 420, margin: 0 }}>
+            <h3 style={{ color: 'var(--danger)', marginBottom: 8 }}>Confirm Restore</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 16 }}>
+              This will <strong>replace all your current OpenClaw data</strong> with this backup and restart your service. This action cannot be undone.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>
+              Backup: {fmtDate(confirmRestore.created_at)} ({fmtSize(confirmRestore.size_bytes)})
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setConfirmRestore(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                onClick={() => handleRestore(confirmRestore.id)} disabled={restoring === confirmRestore.id}>
+                {restoring === confirmRestore.id ? 'Restoring...' : 'Yes, Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backup List */}
+      {backups.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>{'📦'}</div>
+          <p style={{ color: 'var(--text-dim)', fontSize: 14 }}>No backups yet</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>Click "Create Backup" to save your current OpenClaw data</p>
+        </div>
+      ) : (
+        <div>
+          {backups.map(b => (
+            <div key={b.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '14px 20px' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  {fmtDate(b.created_at)}
+                  <span className="badge" style={{
+                    marginLeft: 8,
+                    background: b.type === 'auto' ? '#eef2ff' : '#f0fdf4',
+                    color: b.type === 'auto' ? 'var(--accent)' : 'var(--success)',
+                  }}>
+                    {b.type === 'auto' ? 'Auto' : 'Manual'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {fmtSize(b.size_bytes)} | {b.filename}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-primary" style={{ padding: '4px 12px', fontSize: 12 }}
+                  onClick={() => setConfirmRestore(b)} disabled={restoring === b.id}>
+                  {restoring === b.id ? 'Restoring...' : 'Restore'}
+                </button>
+                <button className="btn btn-danger" style={{ padding: '4px 12px', fontSize: 12 }}
+                  onClick={() => handleDelete(b.id)} disabled={deleting === b.id}>
+                  {deleting === b.id ? '...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Info */}
+      <div className="card" style={{ background: '#f4f4f5', borderColor: '#e4e4e7' }}>
+        <h3 style={{ marginBottom: 8 }}>About Backups</h3>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+          <div><strong>What is backed up:</strong> OpenClaw config, conversations, channels, workspace files</div>
+          <div><strong>Storage:</strong> Vultr Cloud Object Storage (encrypted, redundant)</div>
+          <div><strong>Auto-backup:</strong> Runs daily, keeps last 7 backups</div>
+          <div><strong>Restore:</strong> Replaces current data with backup and restarts service</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===== Settings Page =====
 function SettingsPage({ addToast }) {
   const [profile, setProfile] = useState(null);
@@ -1199,7 +1386,7 @@ function App() {
     </>;
   }
 
-  const pages = { dashboard: Dashboard, console: ConsolePage, guide: SetupGuidePage, settings: SettingsPage };
+  const pages = { dashboard: Dashboard, console: ConsolePage, guide: SetupGuidePage, backups: BackupsPage, settings: SettingsPage };
   const PageComponent = pages[page];
 
   return (
@@ -1216,6 +1403,7 @@ function App() {
         <div className={`nav-tab ${page === 'dashboard' ? 'active' : ''}`} onClick={() => setPage('dashboard')}>Dashboard</div>
         <div className={`nav-tab ${page === 'console' ? 'active' : ''}`} onClick={() => setPage('console')}>Console</div>
         <div className={`nav-tab ${page === 'guide' ? 'active' : ''}`} onClick={() => setPage('guide')}>Setup Guide</div>
+        <div className={`nav-tab ${page === 'backups' ? 'active' : ''}`} onClick={() => setPage('backups')}>Backups</div>
         <div className={`nav-tab ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>Settings</div>
       </div>
       <PageComponent addToast={addToast} />
