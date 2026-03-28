@@ -305,6 +305,15 @@ app.post('/api/admin/users/:id/deploy', verifyToken, adminOnly, async (req, res)
   }
 });
 
+// Admin impersonate user - login as user
+app.post('/api/admin/users/:id/impersonate', verifyToken, adminOnly, (req, res) => {
+  const user = db.getUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const token = signToken({ id: user.id, username: user.username, role: 'user', impersonated: true }, '4h');
+  db.logActivity(user.id, 'admin_impersonate', `Admin logged in as ${user.username}`);
+  res.json({ token, username: user.username, openclaw_url: user.openclaw_url });
+});
+
 app.get('/api/admin/server/stats', verifyToken, adminOnly, async (req, res) => {
   try {
     const [system, containers, tasks] = await Promise.all([

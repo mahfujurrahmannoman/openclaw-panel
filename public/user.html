@@ -166,6 +166,17 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
+// ===== Handle admin impersonation token from URL =====
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get('token');
+  if (urlToken) {
+    localStorage.setItem('user_token', urlToken);
+    localStorage.setItem('user_impersonated', 'true');
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+})();
+
 // ===== API Helper =====
 const api = {
   token: localStorage.getItem('user_token'),
@@ -1433,8 +1444,11 @@ function App() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
   }, []);
 
+  const isImpersonated = localStorage.getItem('user_impersonated') === 'true';
+
   const logout = () => {
     localStorage.removeItem('user_token');
+    localStorage.removeItem('user_impersonated');
     api.token = null;
     setLoggedIn(false);
   };
@@ -1452,6 +1466,12 @@ function App() {
   return (
     <>
       <ToastContainer toasts={toasts} />
+      {isImpersonated && (
+        <div style={{ background: 'linear-gradient(90deg, #f59e0b, #d97706)', color: '#000', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 600, fontSize: 13, position: 'sticky', top: 0, zIndex: 1000 }}>
+          <span>Admin Mode — You are viewing this account as an admin</span>
+          <button onClick={() => window.close()} style={{ background: 'rgba(0,0,0,.15)', border: 'none', color: '#000', padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>Exit</button>
+        </div>
+      )}
       <div className="topbar">
         <div className="topbar-brand">
           <h1>OpenClaw</h1>

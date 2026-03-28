@@ -794,6 +794,13 @@ function UsersPage({ addToast }) {
   const handleDeploy = async (user) => {
     try { await api.post(`/api/admin/users/${user.id}/deploy`); addToast(`${user.username} redeployed`, 'success'); } catch (err) { addToast(err.message, 'error'); }
   };
+  const handleLoginAs = async (user) => {
+    try {
+      const res = await api.post(`/api/admin/users/${user.id}/impersonate`);
+      window.open(`/panel?token=${res.token}`, '_blank');
+      addToast(`Logged in as ${user.username}`, 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+  };
   const handleDelete = async (user) => {
     if (!confirm(`Delete user "${user.username}"? This will destroy their OpenClaw instance and ALL data. This cannot be undone.`)) return;
     try { await api.del(`/api/admin/users/${user.id}`); addToast(`${user.username} deleted`, 'success'); loadUsers(); } catch (err) { addToast(err.message, 'error'); }
@@ -867,6 +874,7 @@ function UsersPage({ addToast }) {
                         ) : (
                           <button className="btn btn-sm" onClick={() => handleActivate(u)} title="Activate" style={{ color: 'var(--success)' }}>Activate</button>
                         )}
+                        <button className="btn btn-sm" onClick={() => handleLoginAs(u)} title="Login as this user" style={{ color: 'var(--primary)' }}>Login As</button>
                         <button className="btn btn-sm" onClick={() => handleDeploy(u)} title="Redeploy">Deploy</button>
                         <button className="btn btn-sm btn-danger" onClick={() => handleDelete(u)} title="Delete">Delete</button>
                       </div>
