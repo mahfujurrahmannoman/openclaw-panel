@@ -267,6 +267,17 @@ class PanelDatabase {
     return this.db.prepare('SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(userId, limit);
   }
 
+  getLastActivityPerUser() {
+    const rows = this.db.prepare(`
+      SELECT a.user_id, a.action, a.details, a.created_at FROM activity_log a
+      INNER JOIN (SELECT user_id, MAX(id) as max_id FROM activity_log WHERE user_id IS NOT NULL GROUP BY user_id) latest
+      ON a.id = latest.max_id
+    `).all();
+    const map = {};
+    rows.forEach(r => { map[r.user_id] = r; });
+    return map;
+  }
+
   // --- Dashboard Stats ---
   getDashboardStats() {
     const total = this.db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;

@@ -143,6 +143,8 @@ app.get('/api/admin/dashboard/live', verifyToken, adminOnly, async (req, res) =>
       tasks: tasks.status === 'fulfilled' ? tasks.value : {},
       dbStats: db.getDashboardStats(),
       users: db.getAllUsers(),
+      recentActivity: db.getRecentActivity(20),
+      lastActivityPerUser: db.getLastActivityPerUser(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

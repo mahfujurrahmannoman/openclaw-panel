@@ -228,6 +228,15 @@ function timeAgo(seconds) {
   return `${Math.floor(seconds / 60)}m ago`;
 }
 
+function relativeTime(dateStr) {
+  if (!dateStr) return '-';
+  const diff = (Date.now() - new Date(dateStr + 'Z').getTime()) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 // ===== API Helper =====
 const api = {
   token: localStorage.getItem('admin_token'),
@@ -545,8 +554,10 @@ function DashboardPage({ addToast }) {
 
   if (!data) return <div style={{ color: 'var(--text-dim)', padding: 40, textAlign: 'center' }}>Loading dashboard...</div>;
 
-  const { system, containers, tasks, dbStats, users } = data;
+  const { system, containers, tasks, dbStats, users, recentActivity, lastActivityPerUser } = data;
   const safeContainers = Array.isArray(containers) ? containers : [];
+  const safeActivity = Array.isArray(recentActivity) ? recentActivity : [];
+  const userLastAction = lastActivityPerUser || {};
   const safeTasks = tasks || {};
   const safeUsers = Array.isArray(users) ? users : [];
 
@@ -642,6 +653,39 @@ function DashboardPage({ addToast }) {
         </div>
       </div>
 
+      {/* Live Activity Feed */}
+      <div className="section-title">Live Activity Feed</div>
+      <div className="card" style={{ padding: 0, overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
+        {safeActivity.length > 0 ? (
+          <table>
+            <thead><tr><th style={{ width: 90 }}>When</th><th style={{ width: 100 }}>User</th><th style={{ width: 140 }}>Action</th><th>Details</th></tr></thead>
+            <tbody>
+              {safeActivity.map(a => {
+                const colors = {
+                  user_created: { bg: 'rgba(34,197,94,.1)', color: 'var(--success)' },
+                  user_activated: { bg: 'rgba(34,197,94,.1)', color: 'var(--success)' },
+                  user_suspended: { bg: 'rgba(239,68,68,.1)', color: 'var(--danger)' },
+                  user_deleted: { bg: 'rgba(239,68,68,.1)', color: 'var(--danger)' },
+                  service_redeployed: { bg: 'rgba(99,102,241,.1)', color: 'var(--accent)' },
+                  admin_impersonate: { bg: 'rgba(245,158,11,.1)', color: '#f59e0b' },
+                };
+                const ac = colors[a.action] || { bg: 'rgba(99,102,241,.1)', color: 'var(--accent)' };
+                return (
+                  <tr key={a.id}>
+                    <td className="mono" style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{relativeTime(a.created_at)}</td>
+                    <td style={{ fontWeight: 500, fontSize: 13 }}>{a.username || <span style={{ color: 'var(--text-muted)' }}>system</span>}</td>
+                    <td><span className="badge" style={{ background: ac.bg, color: ac.color, fontSize: 11 }}>{a.action.replace(/_/g, ' ')}</span></td>
+                    <td style={{ fontSize: 12, color: 'var(--text-dim)' }}>{a.details}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-dim)' }}>No activity yet</div>
+        )}
+      </div>
+
       {/* Row 4: Server Actions */}
       <div className="section-title">Server Actions</div>
       <div className="action-grid">
@@ -716,35 +760,51 @@ function DashboardPage({ addToast }) {
       {/* Row 6: Per-User Resource Breakdown */}
       {safeUsers.length > 0 && (
         <div className="section">
-          <div className="section-title">Per-User Resource Breakdown</div>
+          <div className="section-title">User Overview</div>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>User</th>
+                    <th>Health</th>
                     <th>Status</th>
-                    <th style={{ minWidth: 140 }}>CPU</th>
-                    <th style={{ minWidth: 140 }}>RAM</th>
+                    <th style={{ minWidth: 130 }}>CPU</th>
+                    <th style={{ minWidth: 130 }}>RAM</th>
                     <th>Net In</th>
                     <th>Net Out</th>
+                    <th>Domain</th>
+                    <th>Expires</th>
+                    <th>Last Action</th>
+                    <th>Quick Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {safeUsers.map(u => {
-                    // Match container by project_name
                     const uc = safeContainers.find(c => c.projectName === u.project_name);
+                    const taskKey = `${u.project_name}_${u.service_name}`;
+                    const task = safeTasks[taskKey];
+                    let health = 'unknown';
+                    if (task) {
+                      if (task.actual >= task.desired && task.actual > 0) health = 'running';
+                      else if (task.actual === 0) health = 'stopped';
+                      else health = 'degraded';
+                    }
                     const cpu = uc?.stats?.cpu?.percent ?? 0;
                     const memBytes = uc?.stats?.memory?.usage ?? 0;
                     const memPct = uc?.stats?.memory?.percent ?? 0;
                     const netIn = uc?.stats?.network?.in ?? 0;
                     const netOut = uc?.stats?.network?.out ?? 0;
+                    const la = userLastAction[u.id];
+                    const expiresAt = u.expires_at ? new Date(u.expires_at) : null;
+                    const daysLeft = expiresAt ? Math.ceil((expiresAt - Date.now()) / 86400000) : null;
                     return (
                       <tr key={u.id}>
                         <td>
                           <div style={{ fontWeight: 600, fontSize: 13 }}>{u.username}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{u.email}</div>
                         </td>
+                        <td><HealthDot status={health} /></td>
                         <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
                         <td><ResourceBar value={cpu} /></td>
                         <td>
@@ -753,6 +813,42 @@ function DashboardPage({ addToast }) {
                         </td>
                         <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(netIn)}</td>
                         <td className="mono" style={{ fontSize: 12 }}>{formatBytesShort(netOut)}</td>
+                        <td>
+                          {u.domain ? (
+                            <a href={`https://${u.domain}`} target="_blank" rel="noopener" className="mono" style={{ fontSize: 11 }}>{u.domain}</a>
+                          ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>-</span>}
+                        </td>
+                        <td>
+                          {expiresAt ? (
+                            <span className="mono" style={{ fontSize: 11, color: daysLeft <= 7 ? 'var(--danger)' : daysLeft <= 30 ? '#f59e0b' : 'var(--text-dim)' }}>
+                              {daysLeft <= 0 ? 'Expired' : `${daysLeft}d left`}
+                            </span>
+                          ) : <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>-</span>}
+                        </td>
+                        <td>
+                          {la ? (
+                            <div>
+                              <div style={{ fontSize: 11, color: 'var(--text)' }}>{la.action.replace(/_/g, ' ')}</div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{relativeTime(la.created_at)}</div>
+                            </div>
+                          ) : <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>-</span>}
+                        </td>
+                        <td>
+                          <div className="btn-group">
+                            <button className="btn btn-sm" style={{ color: 'var(--primary)', fontSize: 11 }} onClick={async () => {
+                              try { const res = await api.post(`/api/admin/users/${u.id}/impersonate`); window.open(`/panel?token=${res.token}`, '_blank'); } catch (err) { addToast(err.message, 'error'); }
+                            }} title="Login as user">Login As</button>
+                            {u.status === 'active' ? (
+                              <button className="btn btn-sm" style={{ fontSize: 11 }} onClick={async () => {
+                                try { await api.post(`/api/admin/users/${u.id}/suspend`); addToast(`${u.username} suspended`, 'success'); load(); } catch (err) { addToast(err.message, 'error'); }
+                              }}>Suspend</button>
+                            ) : (
+                              <button className="btn btn-sm" style={{ color: 'var(--success)', fontSize: 11 }} onClick={async () => {
+                                try { await api.post(`/api/admin/users/${u.id}/activate`); addToast(`${u.username} activated`, 'success'); load(); } catch (err) { addToast(err.message, 'error'); }
+                              }}>Activate</button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
