@@ -4,10 +4,16 @@ const express = require('express');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const Docker = require('dockerode');
 const PanelDatabase = require('./database');
 const EasypanelAPI = require('./easypanel');
 const BackupService = require('./backup');
+const dockerStats = require('./docker-stats');
 const { signToken, verifyToken, adminOnly, userOnly } = require('./middleware');
+
+// Shared Docker socket client. Works when the panel runs on the same host as
+// Easypanel, which is required for the console/SSH/backup/stats features.
+const docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' });
 
 const app = express();
 
@@ -117,12 +123,12 @@ app.post('/api/user/login', authLimiter, (req, res) => {
 app.get('/api/admin/dashboard', verifyToken, adminOnly, async (req, res) => {
   try {
     const dbStats = db.getDashboardStats();
-    let serverStats = null;
-    let containerStats = null;
-    try {
-      serverStats = await easypanel.getSystemStats();
-      containerStats = await easypanel.getMonitorTableData();
-    } catch (_) {}
+    const [serverStatsRes, containerStatsRes] = await Promise.allSettled([
+      dockerStats.getSystemStats(docker),
+      dockerStats.getContainerStats(docker),
+    ]);
+    const serverStats = serverStatsRes.status === 'fulfilled' ? serverStatsRes.value : null;
+    const containerStats = containerStatsRes.status === 'fulfilled' ? containerStatsRes.value : null;
     res.json({ dbStats, serverStats, containerStats });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -133,9 +139,9 @@ app.get('/api/admin/dashboard', verifyToken, adminOnly, async (req, res) => {
 app.get('/api/admin/dashboard/live', verifyToken, adminOnly, async (req, res) => {
   try {
     const [system, containers, tasks] = await Promise.allSettled([
-      easypanel.getSystemStats(),
-      easypanel.getMonitorTableData(),
-      easypanel.getDockerTaskStats(),
+      dockerStats.getSystemStats(docker),
+      dockerStats.getContainerStats(docker),
+      dockerStats.getSwarmTaskStats(docker),
     ]);
     res.json({
       system: system.status === 'fulfilled' ? system.value : null,
@@ -288,7 +294,7 @@ app.get('/api/admin/users/:id/stats', verifyToken, adminOnly, async (req, res) =
   const user = db.getUserById(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
-    const stats = await easypanel.getUserStats(user.project_name);
+    const stats = await dockerStats.getUserStats(docker, user.project_name);
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -319,9 +325,9 @@ app.post('/api/admin/users/:id/impersonate', verifyToken, adminOnly, (req, res) 
 app.get('/api/admin/server/stats', verifyToken, adminOnly, async (req, res) => {
   try {
     const [system, containers, tasks] = await Promise.all([
-      easypanel.getSystemStats(),
-      easypanel.getMonitorTableData(),
-      easypanel.getDockerTaskStats(),
+      dockerStats.getSystemStats(docker),
+      dockerStats.getContainerStats(docker),
+      dockerStats.getSwarmTaskStats(docker),
     ]);
     res.json({ system, containers, tasks });
   } catch (err) {
@@ -529,8 +535,8 @@ app.get('/api/user/stats', verifyToken, userOnly, async (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
     const [containersRes, tasksRes] = await Promise.allSettled([
-      easypanel.getUserStats(user.project_name),
-      easypanel.getDockerTaskStats(),
+      dockerStats.getUserStats(docker, user.project_name),
+      dockerStats.getSwarmTaskStats(docker),
     ]);
     const containers = containersRes.status === 'fulfilled' ? containersRes.value : [];
     const allTasks = tasksRes.status === 'fulfilled' ? tasksRes.value : {};
@@ -791,12 +797,8 @@ app.get('/panel', (req, res) => {
 
 const http = require('http');
 const { WebSocketServer } = require('ws');
-const Docker = require('dockerode');
 
 const server = http.createServer(app);
-
-// Docker connection - works when panel runs on the same server as Easypanel
-const docker = new Docker({ socketPath: process.env.DOCKER_SOCKET || '/var/run/docker.sock' });
 
 // API key encryption helpers
 function encryptApiKey(text) {
