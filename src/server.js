@@ -688,8 +688,29 @@ app.get('/api/user/logs', verifyToken, userOnly, async (req, res) => {
   const user = db.getUserById(req.auth.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
-    const logs = await easypanel.getServiceLogs(user.project_name, user.service_name);
+    const logs = await dockerStats.getSwarmServiceLogs(
+      docker,
+      user.project_name,
+      user.service_name || 'openclaw-gateway',
+      300,
+    );
     res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin diagnostics — see why a user's service is failing.
+app.get('/api/admin/users/:id/diagnose', verifyToken, adminOnly, async (req, res) => {
+  const user = db.getUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const serviceName = user.service_name || 'openclaw-gateway';
+    const [logs, tasks] = await Promise.all([
+      dockerStats.getSwarmServiceLogs(docker, user.project_name, serviceName, 300),
+      dockerStats.getSwarmServiceTasks(docker, user.project_name, serviceName),
+    ]);
+    res.json({ projectName: user.project_name, serviceName, logs, tasks });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

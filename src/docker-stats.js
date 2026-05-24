@@ -222,9 +222,112 @@ async function getUserStats(docker, projectName) {
   return all.filter(s => s.projectName === projectName);
 }
 
+/**
+ * Fetch logs for a swarm service.
+ *
+ * Uses the swarm service logs API which returns combined logs from all tasks
+ * (including dead/restarting ones — which is exactly what we need for
+ * crashlooping services). Falls back to logging any single matching container
+ * if the service can't be found.
+ */
+async function getSwarmServiceLogs(docker, projectName, serviceName, tail = 200) {
+  const swarmName = `${projectName}_${serviceName}`;
+
+  // Try swarm service logs first — these include dead task logs.
+  try {
+    const services = await docker.listServices();
+    const svc = services.find(s => s.Spec?.Name === swarmName);
+    if (svc) {
+      const service = docker.getService(svc.ID);
+      const logBuf = await service.logs({
+        stdout: true,
+        stderr: true,
+        tail,
+        timestamps: true,
+        details: false,
+      });
+      return stripDockerHeader(logBuf);
+    }
+  } catch (err) {
+    // fall through to container logs
+  }
+
+  // Fallback: find any container with matching swarm service label.
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const match = containers.find(c =>
+      (c.Labels || {})['com.docker.swarm.service.name'] === swarmName
+    );
+    if (!match) return `(no container found for ${swarmName})`;
+    const dc = docker.getContainer(match.Id);
+    const logBuf = await dc.logs({
+      stdout: true,
+      stderr: true,
+      tail,
+      timestamps: true,
+    });
+    return stripDockerHeader(logBuf);
+  } catch (err) {
+    return `(failed to fetch logs: ${err.message})`;
+  }
+}
+
+/**
+ * Docker multiplexes stdout/stderr in log streams with an 8-byte header per
+ * frame: [stream, 0, 0, 0, size_be_u32]. Strip those headers so the result is
+ * plain text suitable for display.
+ */
+function stripDockerHeader(buf) {
+  if (!Buffer.isBuffer(buf)) return String(buf || '');
+  const out = [];
+  let i = 0;
+  while (i + 8 <= buf.length) {
+    const size = buf.readUInt32BE(i + 4);
+    const start = i + 8;
+    const end = start + size;
+    if (end > buf.length) break;
+    out.push(buf.slice(start, end).toString('utf8'));
+    i = end;
+  }
+  // If no frame headers were found (raw text), just return as-is.
+  return out.length > 0 ? out.join('') : buf.toString('utf8');
+}
+
+/**
+ * Get task-level diagnostics for a swarm service: each task's state, error,
+ * and exit code if it crashed. Useful when "0/N" replicas — tells you WHY.
+ */
+async function getSwarmServiceTasks(docker, projectName, serviceName) {
+  const swarmName = `${projectName}_${serviceName}`;
+  try {
+    const services = await docker.listServices();
+    const svc = services.find(s => s.Spec?.Name === swarmName);
+    if (!svc) return [];
+    const tasks = await docker.listTasks({});
+    return tasks
+      .filter(t => t.ServiceID === svc.ID)
+      .sort((a, b) => new Date(b.UpdatedAt) - new Date(a.UpdatedAt))
+      .slice(0, 10)
+      .map(t => ({
+        id: t.ID,
+        state: t.Status?.State,
+        desiredState: t.DesiredState,
+        message: t.Status?.Message || '',
+        err: t.Status?.Err || '',
+        exitCode: t.Status?.ContainerStatus?.ExitCode,
+        timestamp: t.Status?.Timestamp,
+        updatedAt: t.UpdatedAt,
+      }));
+  } catch (err) {
+    return [{ error: err.message }];
+  }
+}
+
 module.exports = {
   getContainerStats,
   getSwarmTaskStats,
   getSystemStats,
   getUserStats,
+  getSwarmServiceLogs,
+  getSwarmServiceTasks,
 };
