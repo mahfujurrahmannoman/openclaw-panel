@@ -522,6 +522,24 @@ app.get('/api/external/testconnection', externalLimiter, externalApiAuth, (req, 
   res.json({ success: true, message: 'OpenClaw Panel API connected', version: '1.0.0' });
 });
 
+// Diagnostics over external auth — lets ops/SRE pull logs + task state for
+// any user without an admin JWT (handy when the admin panel itself is
+// dependent on a working service to debug a broken one).
+app.get('/api/external/diagnose/:username', externalLimiter, externalApiAuth, async (req, res) => {
+  const user = db.getUserByUsername(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const serviceName = user.service_name || 'openclaw-gateway';
+    const [logs, tasks] = await Promise.all([
+      dockerStats.getSwarmServiceLogs(docker, user.project_name, serviceName, 200),
+      dockerStats.getSwarmServiceTasks(docker, user.project_name, serviceName),
+    ]);
+    res.json({ projectName: user.project_name, serviceName, logs, tasks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== USER ROUTES ====================
 
 app.get('/api/user/profile', verifyToken, userOnly, (req, res) => {
