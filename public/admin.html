@@ -901,7 +901,7 @@ function UsersPage({ addToast }) {
     try {
       const r = await api.post(`/api/admin/users/${user.id}/fix-config`);
       const msg = r.status === 'FIXED'
-        ? `${user.username}: removed ${(r.removed || []).length} bad key(s), redeploying...`
+        ? `${user.username}: removed ${r.totalRemoved || 0} bad key(s), redeploying...`
         : `${user.username}: ${r.status || 'done'}`;
       addToast(msg, 'success');
     } catch (err) { addToast(err.message, 'error'); }

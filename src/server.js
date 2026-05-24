@@ -556,7 +556,7 @@ app.post('/api/external/fix-config/:username', externalLimiter, externalApiAuth,
       redeployErr = err.message;
     }
     db.logActivity(user.id, 'config_repaired',
-      `Config repair (ext): ${result.status}${result.removed ? ' removed=' + result.removed.join(',') : ''}`);
+      `Config repair (ext): ${result.status}${result.totalRemoved ? ' removed=' + result.totalRemoved : ''}`);
     res.json({ username: user.username, projectName: user.project_name, ...result, redeployErr });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -798,7 +798,7 @@ async function repairUserAndRedeploy(user) {
     redeployErr = err.message;
   }
   db.logActivity(user.id, 'config_repaired',
-    `Config repair: ${result.status}${result.removed ? ' removed=' + result.removed.join(',') : ''}`);
+    `Config repair: ${result.status}${result.totalRemoved ? ' removed=' + result.totalRemoved : ''}`);
   return { username: user.username, projectName: user.project_name, ...result, redeployErr };
 }
 

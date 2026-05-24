@@ -34,40 +34,92 @@ const NODE_GID = 1000;
 function buildFixerScript(badKeyPaths) {
   return `
     const fs = require('fs');
-    const path = '/data/openclaw.json';
-    if (!fs.existsSync(path)) {
-      console.log(JSON.stringify({ status: 'NO_CONFIG' }));
+    const fsp = require('fs/promises');
+    const path = require('path');
+
+    // Recursively find openclaw.json — older containers stored it at /data/openclaw.json,
+    // newer ones nest it under e.g. /data/state/openclaw.json. Walk a few levels deep.
+    function findConfig(root, depth = 3) {
+      const hits = [];
+      function walk(dir, left) {
+        if (left < 0) return;
+        let ents;
+        try { ents = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+        for (const e of ents) {
+          const p = path.join(dir, e.name);
+          if (e.isFile() && e.name === 'openclaw.json') hits.push(p);
+          else if (e.isDirectory() && !e.name.startsWith('.git')) walk(p, left - 1);
+        }
+      }
+      walk(root, depth);
+      return hits;
+    }
+
+    function listing(root, depth = 2) {
+      const out = [];
+      function walk(dir, left) {
+        if (left < 0) return;
+        let ents;
+        try { ents = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+        for (const e of ents) {
+          const p = path.join(dir, e.name);
+          out.push((e.isDirectory() ? '[d] ' : '    ') + p);
+          if (e.isDirectory()) walk(p, left - 1);
+        }
+      }
+      walk(root, depth);
+      return out;
+    }
+
+    const candidates = findConfig('/data', 3);
+    if (candidates.length === 0) {
+      const ls = listing('/data', 2).slice(0, 80);
+      console.log(JSON.stringify({ status: 'NO_CONFIG', listing: ls }));
       process.exit(0);
     }
-    let cfg;
-    try {
-      cfg = JSON.parse(fs.readFileSync(path, 'utf8'));
-    } catch (e) {
-      console.error('PARSE_ERROR ' + e.message);
-      process.exit(2);
-    }
+
     const badKeys = ${JSON.stringify(badKeyPaths)};
-    const removed = [];
-    for (const dotted of badKeys) {
-      const parts = dotted.split('.');
-      let obj = cfg;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!obj || typeof obj !== 'object') { obj = null; break; }
-        obj = obj[parts[i]];
+    const fixed = [];
+    let totalRemoved = 0;
+    let anyChanged = false;
+
+    for (const target of candidates) {
+      let cfg;
+      try { cfg = JSON.parse(fs.readFileSync(target, 'utf8')); }
+      catch (e) {
+        fixed.push({ path: target, error: 'PARSE_ERROR: ' + e.message });
+        continue;
       }
-      const leaf = parts[parts.length - 1];
-      if (obj && typeof obj === 'object' && leaf in obj) {
-        delete obj[leaf];
-        removed.push(dotted);
+      const removed = [];
+      for (const dotted of badKeys) {
+        const parts = dotted.split('.');
+        let obj = cfg;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!obj || typeof obj !== 'object') { obj = null; break; }
+          obj = obj[parts[i]];
+        }
+        const leaf = parts[parts.length - 1];
+        if (obj && typeof obj === 'object' && leaf in obj) {
+          delete obj[leaf];
+          removed.push(dotted);
+        }
       }
+      if (removed.length > 0) {
+        fs.writeFileSync(target, JSON.stringify(cfg, null, 2) + '\\n');
+        try { fs.chownSync(target, ${NODE_UID}, ${NODE_GID}); } catch {}
+        anyChanged = true;
+        totalRemoved += removed.length;
+      }
+      fixed.push({ path: target, removed });
     }
-    if (removed.length === 0) {
-      console.log(JSON.stringify({ status: 'NO_CHANGE' }));
-      process.exit(0);
-    }
-    fs.writeFileSync(path, JSON.stringify(cfg, null, 2) + '\\n');
-    try { fs.chownSync(path, ${NODE_UID}, ${NODE_GID}); } catch {}
-    console.log(JSON.stringify({ status: 'FIXED', removed: removed }));
+
+    console.log(JSON.stringify({
+      status: anyChanged ? 'FIXED' : 'NO_CHANGE',
+      files: fixed,
+      totalRemoved,
+    }));
   `;
 }
 
