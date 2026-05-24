@@ -164,9 +164,44 @@ async function ensureImage(docker, image) {
  * Returns: { status: 'FIXED'|'NO_CHANGE'|'NO_CONFIG', removed?: string[],
  *            exitCode: number, output: string }
  */
+/**
+ * Find the Docker volume that maps to a project's `config` mount.
+ *
+ * Easypanel's volume naming has shifted between versions: we've seen
+ * `<project>_config`, `<project>_<service>_config`, and stacks where the
+ * config is just a bind mount under /etc/easypanel/projects/.../volumes/.
+ * Probe the most likely candidates and fall back to any volume whose name
+ * starts with the project prefix.
+ */
+async function resolveConfigVolume(docker, projectName) {
+  const tryNames = [
+    `${projectName}_config`,
+    `${projectName}_openclaw-gateway_config`,
+  ];
+  for (const name of tryNames) {
+    try {
+      await docker.getVolume(name).inspect();
+      return { name, source: 'volume' };
+    } catch { /* not found */ }
+  }
+  // Fall back to any volume whose name starts with the project name.
+  try {
+    const { Volumes } = await docker.listVolumes();
+    const matches = (Volumes || [])
+      .map(v => v.Name)
+      .filter(n => n.startsWith(projectName) && n.toLowerCase().includes('config'));
+    if (matches.length === 1) return { name: matches[0], source: 'volume' };
+    if (matches.length > 1) return { name: matches[0], source: 'volume', alternatives: matches };
+  } catch { /* ignore */ }
+  // Last-ditch: check the Easypanel bind-mount path layout.
+  const bindPath = `/etc/easypanel/projects/${projectName}/openclaw-gateway/volumes/config`;
+  return { name: bindPath, source: 'bind' };
+}
+
 async function fixUserConfig(docker, projectName) {
   if (!projectName) throw new Error('projectName required');
-  const volumeName = `${projectName}_config`;
+  const resolved = await resolveConfigVolume(docker, projectName);
+  const bindSource = resolved.source === 'volume' ? resolved.name : resolved.name;
 
   await ensureImage(docker, FIXER_IMAGE);
 
@@ -176,7 +211,7 @@ async function fixUserConfig(docker, projectName) {
     Image: FIXER_IMAGE,
     Cmd: ['node', '-e', script],
     HostConfig: {
-      Binds: [`${volumeName}:/data`],
+      Binds: [`${bindSource}:/data`],
       // Don't auto-remove — we need to read logs after exit.
       AutoRemove: false,
     },
@@ -206,7 +241,14 @@ async function fixUserConfig(docker, projectName) {
     }
   }
 
-  return { ...result, exitCode, output: logs, volumeName };
+  return {
+    ...result,
+    exitCode,
+    output: logs,
+    volumeName: resolved.name,
+    volumeSource: resolved.source,
+    alternatives: resolved.alternatives,
+  };
 }
 
 module.exports = {

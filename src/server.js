@@ -541,6 +541,23 @@ app.get('/api/external/diagnose/:username', externalLimiter, externalApiAuth, as
   }
 });
 
+// Debug helper: list every Docker volume whose name starts with the user's
+// project prefix. Used to figure out where Easypanel parked the config
+// volume on this host before running a fix.
+app.get('/api/external/volumes/:username', externalLimiter, externalApiAuth, async (req, res) => {
+  const user = db.getUserByUsername(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const { Volumes } = await docker.listVolumes();
+    const matches = (Volumes || [])
+      .filter(v => v.Name.startsWith(user.project_name))
+      .map(v => ({ name: v.Name, mountpoint: v.Mountpoint, driver: v.Driver }));
+    res.json({ projectName: user.project_name, matches });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // External-auth config repair (single user + bulk). Mirrors the admin
 // equivalents so ops can recover broken services without an admin JWT.
 app.post('/api/external/fix-config/:username', externalLimiter, externalApiAuth, async (req, res) => {
