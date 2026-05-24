@@ -16,13 +16,14 @@
  * OpenClaw image), exits. Then the caller redeploys the swarm service.
  */
 
-// Hardcoded fallback list — used only if running OpenClaw's own `doctor
-// --fix` fails for some reason. Maintained so we have a deterministic last
-// resort, but in practice doctor handles dynamic cases (e.g. removed
-// plugins) that we couldn't enumerate here.
+// Keys that the OpenClaw 2026.2.3 schema rejects. `doctor --fix` only
+// cleans some of these (the channel ones), so we always run a targeted
+// removal pass afterwards too. Extend this list as new failure modes
+// surface from container logs.
 const BAD_KEY_PATHS = [
   'channels.whatsapp.enabled',
   'channels.telegram.streaming',
+  'plugins.entries.openrouter',
 ];
 
 // OpenClaw image used both at runtime and (preferentially) for repairs.
@@ -275,24 +276,14 @@ async function fixUserConfig(docker, projectName, serviceName = 'openclaw-gatewa
   const resolved = await resolveConfigVolume(docker, projectName, serviceName);
   const bindSource = resolved.source === 'volume' ? resolved.name : resolved.name;
 
-  // First attempt: let OpenClaw fix its own config. This is the upstream
-  // remedy the gateway itself recommends in its error output, and it
-  // handles dynamic cases (e.g. removed plugins) we can't enumerate.
+  // Two passes, both safe to skip-on-failure:
+  //   1. OpenClaw's own `doctor --fix` — handles schema-known cleanups.
+  //   2. Our targeted key removal — handles dynamic cases (removed
+  //      plugins, legacy channel keys) that doctor doesn't.
+  // We always run both because doctor only fixes a subset of what we've
+  // seen in the wild.
   const doctor = await runOpenclawDoctor(docker, bindSource);
-  if (doctor.ok) {
-    return {
-      status: 'FIXED_BY_DOCTOR',
-      method: 'openclaw-doctor',
-      doctorOutput: doctor.output,
-      exitCode: doctor.exitCode,
-      output: doctor.output,
-      volumeName: resolved.name,
-      volumeSource: resolved.source,
-      alternatives: resolved.alternatives,
-    };
-  }
 
-  // Fallback: surgically remove our hardcoded list of known-bad keys.
   await ensureImage(docker, FIXER_IMAGE);
 
   const script = buildFixerScript(BAD_KEY_PATHS);
