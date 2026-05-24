@@ -16,13 +16,20 @@
  * OpenClaw image), exits. Then the caller redeploys the swarm service.
  */
 
-// Keys that OpenClaw 2026.2.3+ rejects. Add new ones here as they surface.
+// Hardcoded fallback list — used only if running OpenClaw's own `doctor
+// --fix` fails for some reason. Maintained so we have a deterministic last
+// resort, but in practice doctor handles dynamic cases (e.g. removed
+// plugins) that we couldn't enumerate here.
 const BAD_KEY_PATHS = [
   'channels.whatsapp.enabled',
   'channels.telegram.streaming',
 ];
 
-const FIXER_IMAGE = 'node:22-alpine';
+// OpenClaw image used both at runtime and (preferentially) for repairs.
+// We pin to the same tag the panel deploys so repair runs the exact same
+// schema validator as the live service.
+const OPENCLAW_IMAGE = process.env.OPENCLAW_IMAGE || 'ghcr.io/openclaw/openclaw:2026.2.3';
+const FIXER_IMAGE = 'node:22-alpine'; // fallback image
 const NODE_UID = 1000;
 const NODE_GID = 1000;
 
@@ -218,11 +225,74 @@ async function resolveConfigVolume(docker, projectName, serviceName = 'openclaw-
   return { name: bindPath, source: 'bind' };
 }
 
+/**
+ * Try the upstream-recommended fix: run OpenClaw's own `doctor --fix`
+ * against the user's config volume. This handles every invalid key
+ * OpenClaw knows about — including dynamic ones like removed plugins —
+ * because it uses the live schema validator.
+ *
+ * Returns { ok: bool, exitCode, output }.
+ */
+async function runOpenclawDoctor(docker, bindSource) {
+  try {
+    await ensureImage(docker, OPENCLAW_IMAGE);
+  } catch (e) {
+    return { ok: false, output: `pull failed: ${e.message}`, exitCode: -1 };
+  }
+  // OpenClaw resolves config under $HOME/.openclaw. Run as the node user
+  // so the fix runs with the same uid that owns the files.
+  const container = await docker.createContainer({
+    Image: OPENCLAW_IMAGE,
+    User: `${NODE_UID}:${NODE_GID}`,
+    Entrypoint: ['node'],
+    Cmd: ['dist/index.js', 'doctor', '--fix', '--no-install-daemon'],
+    Env: ['HOME=/home/node'],
+    HostConfig: {
+      Binds: [`${bindSource}:/home/node/.openclaw`],
+      AutoRemove: false,
+    },
+    Tty: false,
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+
+  let output = '';
+  let exitCode = -1;
+  try {
+    await container.start();
+    const result = await container.wait();
+    exitCode = result.StatusCode;
+    const buf = await container.logs({ stdout: true, stderr: true, tail: 500 });
+    output = stripDockerHeader(buf);
+  } finally {
+    try { await container.remove({ force: true }); } catch {}
+  }
+  return { ok: exitCode === 0, exitCode, output };
+}
+
 async function fixUserConfig(docker, projectName, serviceName = 'openclaw-gateway') {
   if (!projectName) throw new Error('projectName required');
   const resolved = await resolveConfigVolume(docker, projectName, serviceName);
   const bindSource = resolved.source === 'volume' ? resolved.name : resolved.name;
 
+  // First attempt: let OpenClaw fix its own config. This is the upstream
+  // remedy the gateway itself recommends in its error output, and it
+  // handles dynamic cases (e.g. removed plugins) we can't enumerate.
+  const doctor = await runOpenclawDoctor(docker, bindSource);
+  if (doctor.ok) {
+    return {
+      status: 'FIXED_BY_DOCTOR',
+      method: 'openclaw-doctor',
+      doctorOutput: doctor.output,
+      exitCode: doctor.exitCode,
+      output: doctor.output,
+      volumeName: resolved.name,
+      volumeSource: resolved.source,
+      alternatives: resolved.alternatives,
+    };
+  }
+
+  // Fallback: surgically remove our hardcoded list of known-bad keys.
   await ensureImage(docker, FIXER_IMAGE);
 
   const script = buildFixerScript(BAD_KEY_PATHS);
@@ -263,6 +333,9 @@ async function fixUserConfig(docker, projectName, serviceName = 'openclaw-gatewa
 
   return {
     ...result,
+    method: 'fallback-key-list',
+    doctorOutput: doctor.output,
+    doctorExit: doctor.exitCode,
     exitCode,
     output: logs,
     volumeName: resolved.name,
