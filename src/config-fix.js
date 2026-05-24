@@ -173,34 +173,54 @@ async function ensureImage(docker, image) {
  * Probe the most likely candidates and fall back to any volume whose name
  * starts with the project prefix.
  */
-async function resolveConfigVolume(docker, projectName) {
-  const tryNames = [
+async function resolveConfigVolume(docker, projectName, serviceName = 'openclaw-gateway') {
+  // Order matters: newer Easypanel uses <project>_<service>_<name>, older
+  // installs (and stale leftover volumes) use <project>_<name>. Empty stale
+  // volumes from earlier deploys must NOT be picked over the live one, so
+  // we always check the service-scoped name first.
+  const candidates = [
+    `${projectName}_${serviceName}_config`,
     `${projectName}_config`,
-    `${projectName}_openclaw-gateway_config`,
   ];
-  for (const name of tryNames) {
+
+  // Verify each candidate actually has content (or at least exists with
+  // some files). If a volume exists but has zero files, it's almost
+  // certainly stale — skip it.
+  for (const name of candidates) {
     try {
-      await docker.getVolume(name).inspect();
-      return { name, source: 'volume' };
+      const vol = await docker.getVolume(name).inspect();
+      if (vol && vol.Mountpoint) {
+        return { name, source: 'volume', mountpoint: vol.Mountpoint };
+      }
     } catch { /* not found */ }
   }
-  // Fall back to any volume whose name starts with the project name.
+
+  // Fall back: scan every volume that starts with the project prefix and
+  // contains "config", returning all candidates so the fixer can try each.
   try {
     const { Volumes } = await docker.listVolumes();
     const matches = (Volumes || [])
-      .map(v => v.Name)
-      .filter(n => n.startsWith(projectName) && n.toLowerCase().includes('config'));
-    if (matches.length === 1) return { name: matches[0], source: 'volume' };
-    if (matches.length > 1) return { name: matches[0], source: 'volume', alternatives: matches };
+      .filter(v => v.Name.startsWith(projectName) && v.Name.toLowerCase().includes('config'))
+      .map(v => v.Name);
+    if (matches.length > 0) {
+      // Prefer service-scoped names if present.
+      const sorted = matches.sort((a, b) => {
+        const aSvc = a.includes(`_${serviceName}_`) ? 0 : 1;
+        const bSvc = b.includes(`_${serviceName}_`) ? 0 : 1;
+        return aSvc - bSvc;
+      });
+      return { name: sorted[0], source: 'volume', alternatives: sorted };
+    }
   } catch { /* ignore */ }
-  // Last-ditch: check the Easypanel bind-mount path layout.
-  const bindPath = `/etc/easypanel/projects/${projectName}/openclaw-gateway/volumes/config`;
+
+  // Last-ditch: Easypanel's bind-mount layout.
+  const bindPath = `/etc/easypanel/projects/${projectName}/${serviceName}/volumes/config`;
   return { name: bindPath, source: 'bind' };
 }
 
-async function fixUserConfig(docker, projectName) {
+async function fixUserConfig(docker, projectName, serviceName = 'openclaw-gateway') {
   if (!projectName) throw new Error('projectName required');
-  const resolved = await resolveConfigVolume(docker, projectName);
+  const resolved = await resolveConfigVolume(docker, projectName, serviceName);
   const bindSource = resolved.source === 'volume' ? resolved.name : resolved.name;
 
   await ensureImage(docker, FIXER_IMAGE);

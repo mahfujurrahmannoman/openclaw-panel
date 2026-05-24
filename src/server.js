@@ -565,7 +565,7 @@ app.post('/api/external/fix-config/:username', externalLimiter, externalApiAuth,
   if (!user) return res.status(404).json({ error: 'User not found' });
   try {
     const serviceName = user.service_name || 'openclaw-gateway';
-    const result = await configFix.fixUserConfig(docker, user.project_name);
+    const result = await configFix.fixUserConfig(docker, user.project_name, serviceName);
     let redeployErr = null;
     try {
       await easypanel.deployService(user.project_name, serviceName);
@@ -588,7 +588,7 @@ app.post('/api/external/fix-all-configs', externalLimiter, externalApiAuth, asyn
       if (!u.project_name) continue;
       const serviceName = u.service_name || 'openclaw-gateway';
       try {
-        const result = await configFix.fixUserConfig(docker, u.project_name);
+        const result = await configFix.fixUserConfig(docker, u.project_name, serviceName);
         let redeployErr = null;
         try { await easypanel.deployService(u.project_name, serviceName); }
         catch (err) { redeployErr = err.message; }
@@ -807,7 +807,7 @@ app.get('/api/admin/users/:id/diagnose', verifyToken, adminOnly, async (req, res
 // image rejected legacy config keys (e.g. channels.whatsapp.enabled).
 async function repairUserAndRedeploy(user) {
   const serviceName = user.service_name || 'openclaw-gateway';
-  const result = await configFix.fixUserConfig(docker, user.project_name);
+  const result = await configFix.fixUserConfig(docker, user.project_name, serviceName);
   let redeployErr = null;
   try {
     await easypanel.deployService(user.project_name, serviceName);
