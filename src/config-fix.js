@@ -245,7 +245,7 @@ async function runOpenclawDoctor(docker, bindSource) {
     Image: OPENCLAW_IMAGE,
     User: `${NODE_UID}:${NODE_GID}`,
     Entrypoint: ['node'],
-    Cmd: ['dist/index.js', 'doctor', '--fix', '--no-install-daemon'],
+    Cmd: ['dist/index.js', 'doctor', '--fix'],
     Env: ['HOME=/home/node'],
     HostConfig: {
       Binds: [`${bindSource}:/home/node/.openclaw`],
