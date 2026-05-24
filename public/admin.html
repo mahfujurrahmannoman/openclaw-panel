@@ -897,6 +897,24 @@ function UsersPage({ addToast }) {
       addToast(`Logged in as ${user.username}`, 'success');
     } catch (err) { addToast(err.message, 'error'); }
   };
+  const handleFixConfig = async (user) => {
+    try {
+      const r = await api.post(`/api/admin/users/${user.id}/fix-config`);
+      const msg = r.status === 'FIXED'
+        ? `${user.username}: removed ${(r.removed || []).length} bad key(s), redeploying...`
+        : `${user.username}: ${r.status || 'done'}`;
+      addToast(msg, 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+  };
+  const handleFixAll = async () => {
+    if (!confirm('Repair invalid OpenClaw config for ALL users and redeploy each service? This is safe — only removes known-bad keys.')) return;
+    try {
+      addToast('Repair started — this can take a few minutes...', 'success');
+      const r = await api.post('/api/admin/fix-all-configs');
+      const parts = Object.entries(r.summary || {}).map(([k, v]) => `${k}:${v}`).join(' / ');
+      addToast(`Done. ${parts || 'no users'}`, 'success');
+    } catch (err) { addToast(err.message, 'error'); }
+  };
   const handleDelete = async (user) => {
     if (!confirm(`Delete user "${user.username}"? This will destroy their OpenClaw instance and ALL data. This cannot be undone.`)) return;
     try { await api.del(`/api/admin/users/${user.id}`); addToast(`${user.username} deleted`, 'success'); loadUsers(); } catch (err) { addToast(err.message, 'error'); }
@@ -909,10 +927,15 @@ function UsersPage({ addToast }) {
           <h2 className="page-title" style={{ marginBottom: 0 }}>Users</h2>
           <div className="page-subtitle">{users.length} total user{users.length !== 1 ? 's' : ''}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New User
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={handleFixAll} title="Repair invalid OpenClaw config for all users at once">
+            Fix All Configs
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New User
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -972,6 +995,7 @@ function UsersPage({ addToast }) {
                         )}
                         <button className="btn btn-sm" onClick={() => handleLoginAs(u)} title="Login as this user" style={{ color: 'var(--primary)' }}>Login As</button>
                         <button className="btn btn-sm" onClick={() => handleDeploy(u)} title="Redeploy">Deploy</button>
+                        <button className="btn btn-sm" onClick={() => handleFixConfig(u)} title="Remove invalid keys from openclaw.json and redeploy" style={{ color: 'var(--warning, #d97706)' }}>Fix Config</button>
                         <button className="btn btn-sm btn-danger" onClick={() => handleDelete(u)} title="Delete">Delete</button>
                       </div>
                     </td>

@@ -9,6 +9,7 @@ const PanelDatabase = require('./database');
 const EasypanelAPI = require('./easypanel');
 const BackupService = require('./backup');
 const dockerStats = require('./docker-stats');
+const configFix = require('./config-fix');
 const { signToken, verifyToken, adminOnly, userOnly } = require('./middleware');
 
 // Shared Docker socket client. Works when the panel runs on the same host as
@@ -540,6 +541,56 @@ app.get('/api/external/diagnose/:username', externalLimiter, externalApiAuth, as
   }
 });
 
+// External-auth config repair (single user + bulk). Mirrors the admin
+// equivalents so ops can recover broken services without an admin JWT.
+app.post('/api/external/fix-config/:username', externalLimiter, externalApiAuth, async (req, res) => {
+  const user = db.getUserByUsername(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const serviceName = user.service_name || 'openclaw-gateway';
+    const result = await configFix.fixUserConfig(docker, user.project_name);
+    let redeployErr = null;
+    try {
+      await easypanel.deployService(user.project_name, serviceName);
+    } catch (err) {
+      redeployErr = err.message;
+    }
+    db.logActivity(user.id, 'config_repaired',
+      `Config repair (ext): ${result.status}${result.removed ? ' removed=' + result.removed.join(',') : ''}`);
+    res.json({ username: user.username, projectName: user.project_name, ...result, redeployErr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/external/fix-all-configs', externalLimiter, externalApiAuth, async (req, res) => {
+  try {
+    const users = db.getAllUsers();
+    const results = [];
+    for (const u of users) {
+      if (!u.project_name) continue;
+      const serviceName = u.service_name || 'openclaw-gateway';
+      try {
+        const result = await configFix.fixUserConfig(docker, u.project_name);
+        let redeployErr = null;
+        try { await easypanel.deployService(u.project_name, serviceName); }
+        catch (err) { redeployErr = err.message; }
+        results.push({ username: u.username, projectName: u.project_name, ...result, redeployErr });
+      } catch (err) {
+        results.push({ username: u.username, projectName: u.project_name, error: err.message });
+      }
+    }
+    const summary = results.reduce((acc, r) => {
+      const key = r.error ? 'failed' : (r.status || 'unknown').toLowerCase();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({ summary, total: results.length, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== USER ROUTES ====================
 
 app.get('/api/user/profile', verifyToken, userOnly, (req, res) => {
@@ -729,6 +780,59 @@ app.get('/api/admin/users/:id/diagnose', verifyToken, adminOnly, async (req, res
       dockerStats.getSwarmServiceTasks(docker, user.project_name, serviceName),
     ]);
     res.json({ projectName: user.project_name, serviceName, logs, tasks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: surgically remove invalid keys from a user's openclaw.json and
+// redeploy. Used to recover services that won't start because the OpenClaw
+// image rejected legacy config keys (e.g. channels.whatsapp.enabled).
+async function repairUserAndRedeploy(user) {
+  const serviceName = user.service_name || 'openclaw-gateway';
+  const result = await configFix.fixUserConfig(docker, user.project_name);
+  let redeployErr = null;
+  try {
+    await easypanel.deployService(user.project_name, serviceName);
+  } catch (err) {
+    redeployErr = err.message;
+  }
+  db.logActivity(user.id, 'config_repaired',
+    `Config repair: ${result.status}${result.removed ? ' removed=' + result.removed.join(',') : ''}`);
+  return { username: user.username, projectName: user.project_name, ...result, redeployErr };
+}
+
+app.post('/api/admin/users/:id/fix-config', verifyToken, adminOnly, async (req, res) => {
+  const user = db.getUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const result = await repairUserAndRedeploy(user);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/fix-all-configs', verifyToken, adminOnly, async (req, res) => {
+  try {
+    const users = db.getAllUsers();
+    // Run sequentially so we don't slam the Docker daemon with N parallel
+    // container starts on a busy host.
+    const results = [];
+    for (const u of users) {
+      if (!u.project_name) continue;
+      try {
+        results.push(await repairUserAndRedeploy(u));
+      } catch (err) {
+        results.push({ username: u.username, error: err.message });
+      }
+    }
+    const summary = results.reduce((acc, r) => {
+      const key = r.error ? 'failed' : (r.status || 'unknown').toLowerCase();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    res.json({ summary, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
